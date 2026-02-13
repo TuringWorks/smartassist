@@ -62,21 +62,25 @@ pub struct StateVersion {
 46 registered RPC methods across 15 handler categories:
 
 ### 1. Chat Methods
+
 - `chat` - Send a chat message and get response
 - `chat.history` - Get conversation history
 - `chat.abort` - Abort ongoing chat
 
 ### 2. Agent Methods
+
 - `agent` - Run agent turn
 - `agent.stream` - Streaming agent turn
 
 ### 3. Session Methods
+
 - `sessions.list` - List sessions
 - `sessions.resolve` - Resolve session label to key
 - `sessions.patch` - Update session config
 - `sessions.delete` - Delete session
 
 ### 4. Node Methods
+
 - `node.pair.request` - Request node pairing
 - `node.pair.approve` - Approve pairing
 - `node.pair.reject` - Reject pairing
@@ -89,6 +93,7 @@ pub struct StateVersion {
 - `node.event` - Node event
 
 ### 5. Device Methods
+
 - `device.pair.list` - List paired devices
 - `device.pair.approve` - Approve pairing
 - `device.pair.reject` - Reject pairing
@@ -96,6 +101,7 @@ pub struct StateVersion {
 - `device.token.revoke` - Revoke device token
 
 ### 6. Exec Approval Methods
+
 - `exec.approvals.get` - Get approval config
 - `exec.approvals.set` - Set approval config
 - `exec.approvals.node.get` - Get node approval config
@@ -104,6 +110,7 @@ pub struct StateVersion {
 - `exec.approval.resolve` - Resolve approval
 
 ### 7. Config Methods
+
 - `config.get` - Get config
 - `config.set` - Set config
 - `config.apply` - Apply config with restart
@@ -111,6 +118,7 @@ pub struct StateVersion {
 - `config.schema` - Get config schema
 
 ### 8. Cron Methods
+
 - `cron.list` - List cron jobs
 - `cron.status` - Get cron status
 - `cron.add` - Add cron job
@@ -121,36 +129,43 @@ pub struct StateVersion {
 - `wake` - Send wake event
 
 ### 9. Skill Methods
+
 - `skills.status` - Get skills status
 - `skills.bins` - Get skill binaries
 - `skills.install` - Install skill
 - `skills.update` - Update skill
 
 ### 10. Model Methods
+
 - `models.list` - List available models
 
 ### 11. Health Methods
+
 - `health` - Get health status
 - `status` - Get system status
 - `logs.tail` - Tail logs
 
 ### 12. System Methods
+
 - `system-presence` - Get system presence
 - `system-event` - Send system event
 - `last-heartbeat` - Get last heartbeat
 - `set-heartbeats` - Enable/disable heartbeats
 
 ### 13. Wizard Methods
+
 - `wizard.start` - Start setup wizard
 - `wizard.next` - Next wizard step
 - `wizard.cancel` - Cancel wizard
 - `wizard.status` - Get wizard status
 
 ### 14. Send Methods
+
 - `send` - Send message
 - `send.poll` - Send poll
 
 ### 15. Browser Methods
+
 - `browser.request` - Browser HTTP request
 
 ## Gateway Server

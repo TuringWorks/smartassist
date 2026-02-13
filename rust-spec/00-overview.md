@@ -20,7 +20,7 @@ All 4 phases are complete. The implementation exceeds the original specification
 
 ## Target Architecture
 
-```
+```text
 smartassist-rs/
 ├── crates/
 │   ├── smartassist-core/          # Core types, config, utilities
@@ -42,45 +42,54 @@ smartassist-rs/
 ## Feature Categories
 
 ### 1. Channels (8 Core)
+
 - Telegram, Discord, Slack, Signal, iMessage, WhatsApp, Line, Web
 - See: `channels/` directory for individual specs
 
 ### 2. Tools (37+)
+
 - File system, execution, web, channel actions, agent, media, memory
 - See: `tools/` directory for individual specs
 
 ### 3. Gateway Methods (34 RPC Endpoints)
+
 - Chat, agent, channel, session, node, exec, health, config, system
 - See: `gateway/` directory for specs
 
 ### 4. Model Providers
+
 - Anthropic, OpenAI, Google, local LLMs
 - See: `providers/` directory for specs
 
 ### 5. Plugin SDK
+
 - Plugin traits, lifecycle, configuration, registration
 - See: `plugins/` directory for specs
 
 ## Implementation Priority
 
 ### Phase 1: Core Infrastructure (Weeks 1-4) ✓
+
 1. Model providers (Anthropic, OpenAI)
 2. Gateway RPC methods (chat.*, agent.*)
 3. Core tools (bash, read, write, edit, glob, grep)
 
 ### Phase 2: Channels (Weeks 5-10) ✓
+
 1. Telegram (full implementation)
 2. Discord (full implementation)
 3. Slack (full implementation)
 4. Signal, WhatsApp, iMessage, Line, Web
 
 ### Phase 3: Advanced Features (Weeks 11-16) ✓
+
 1. Plugin SDK
 2. Browser automation tools
 3. Memory/vector search
 4. All remaining tools
 
 ### Phase 4: Platform & Polish (Weeks 17-20) ✓
+
 1. CLI completeness
 2. Configuration validation
 3. Comprehensive testing
@@ -89,6 +98,7 @@ smartassist-rs/
 ## Type Conventions
 
 All specifications use these Rust type conventions:
+
 - `String` for owned strings
 - `&str` for borrowed strings
 - `Option<T>` for optional fields
@@ -101,6 +111,7 @@ All specifications use these Rust type conventions:
 ## Error Handling
 
 All operations return `Result<T, Error>` where appropriate. Errors should:
+
 - Be typed using `thiserror`
 - Include context for debugging
 - Be serializable for RPC responses
@@ -109,6 +120,7 @@ All operations return `Result<T, Error>` where appropriate. Errors should:
 ## Async Runtime
 
 All async code uses `tokio` runtime with:
+
 - `async-trait` for async traits
 - `futures` for stream utilities
 - `tokio-stream` for async iterators
