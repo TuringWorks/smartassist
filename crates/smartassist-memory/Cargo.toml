@@ -1,0 +1,45 @@
+[package]
+name = "smartassist-memory"
+version = "0.1.0"
+edition = "2021"
+description = "Vector memory and embeddings for SmartAssist"
+license = "MIT"
+
+[dependencies]
+smartassist-core = { path = "../smartassist-core" }
+
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+async-trait = "0.1"
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Logging
+tracing = "0.1"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# HTTP client
+reqwest = { version = "0.11", features = ["json", "rustls-tls"], default-features = false }
+
+# Vector database
+lancedb = { version = "0.4", optional = true }
+arrow = { version = "50", optional = true }
+
+# UUID
+uuid = { version = "1.6", features = ["v4"] }
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+[dev-dependencies]
+tokio-test = "0.4"
+tempfile = "3.8"
+
+[features]
+default = []
+lancedb = ["dep:lancedb", "dep:arrow"]

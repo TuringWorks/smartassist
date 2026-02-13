@@ -1,0 +1,63 @@
+[package]
+name = "smartassist-cli"
+version = "0.1.0"
+edition = "2021"
+description = "Command-line interface for SmartAssist"
+license = "MIT"
+
+[[bin]]
+name = "smartassist"
+path = "src/main.rs"
+
+[dependencies]
+smartassist-core = { path = "../smartassist-core" }
+smartassist-agent = { path = "../smartassist-agent" }
+smartassist-gateway = { path = "../smartassist-gateway" }
+smartassist-channels = { path = "../smartassist-channels" }
+smartassist-providers = { path = "../smartassist-providers", features = ["anthropic", "openai", "google"] }
+smartassist-secrets = { path = "../smartassist-secrets" }
+smartassist-plugin-sdk = { path = "../smartassist-plugin-sdk" }
+
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+
+# CLI framework
+clap = { version = "4.4", features = ["derive", "env"] }
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Terminal
+console = "0.15"
+indicatif = "0.17"
+rpassword = "7.3"
+rustyline = "14.0"
+rustyline-derive = "0.10"
+termimad = "0.30"
+crossterm = "0.28"
+ctrlc = "3.4"
+
+# HTTP client
+reqwest = { version = "0.11", features = ["json"] }
+
+# Async streams
+futures = "0.3"
+async-stream = "0.3"
+
+# Config
+directories = "5.0"
+
+[dev-dependencies]
+tempfile = "3"
+
+[features]
+default = []

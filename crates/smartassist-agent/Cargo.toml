@@ -1,0 +1,92 @@
+[package]
+name = "smartassist-agent"
+version = "0.1.0"
+edition = "2021"
+description = "Agent runtime and session management for SmartAssist"
+license = "MIT"
+readme = "README.md"
+
+[dependencies]
+smartassist-core = { path = "../smartassist-core" }
+smartassist-sandbox = { path = "../smartassist-sandbox" }
+smartassist-channels = { path = "../smartassist-channels" }
+smartassist-memory = { path = "../smartassist-memory" }
+smartassist-plugin-sdk = { path = "../smartassist-plugin-sdk" }
+
+# Async runtime
+tokio = { version = "1.35", features = ["full", "sync", "time"] }
+async-trait = "0.1"
+futures = "0.3"
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Logging
+tracing = "0.1"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+
+# HTTP client (for model API calls)
+reqwest = { version = "0.11", features = ["json", "rustls-tls", "stream"], default-features = false }
+
+# Streaming
+tokio-stream = "0.1"
+async-stream = "0.3"
+
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+# UUID generation
+uuid = { version = "1.6", features = ["v4"] }
+
+# Regex for pattern matching
+regex = "1.10"
+
+# Glob pattern matching
+glob = "0.3"
+
+# Diff for edit operations
+similar = "2.4"
+
+# URL parsing
+url = "2.5"
+
+# Random
+rand = "0.8"
+
+# Platform directories
+dirs = "5.0"
+
+# Encoding
+base64 = "0.22"
+hex = "0.4"
+urlencoding = "2.1"
+
+# Hashing
+sha2 = "0.10"
+sha1 = "0.10"
+md5 = "0.7"
+
+# Archive
+zip = "2.2"
+tar = "0.4"
+flate2 = "1.0"
+
+# Network
+hostname = "0.4"
+
+# Browser automation (optional)
+chromiumoxide = { version = "0.7", optional = true, default-features = false, features = ["tokio-runtime"] }
+
+[dev-dependencies]
+tokio-test = "0.4"
+tempfile = "3.8"
+mockall = "0.12"
+
+[features]
+default = []
+browser = ["dep:chromiumoxide"]

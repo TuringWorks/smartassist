@@ -1,0 +1,30 @@
+[package]
+name = "smartassist-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Core types, configuration, and utilities for SmartAssist"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+json5.workspace = true
+thiserror.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+url.workspace = true
+zeroize.workspace = true
+tracing.workspace = true
+base64.workspace = true
+rand.workspace = true
+sha2.workspace = true
+hex.workspace = true
+once_cell.workspace = true
+regex.workspace = true
+aho-corasick.workspace = true
+dirs = "5.0"
+hostname = "0.4"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

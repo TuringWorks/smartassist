@@ -1,0 +1,30 @@
+[package]
+name = "smartassist-secrets"
+version = "0.1.0"
+edition = "2021"
+description = "Encrypted secret management for SmartAssist"
+license = "MIT"
+
+[dependencies]
+smartassist-core = { path = "../smartassist-core" }
+aes-gcm = "0.10"
+hkdf = "0.12"
+sha2 = "0.10"
+rand = "0.8"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "1.0"
+tracing = "0.1"
+zeroize = { version = "1.7", features = ["derive"] }
+tokio = { version = "1.35", features = ["fs", "sync"] }
+async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+hex = "0.4"
+base64 = "0.22"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = "2.11"
+
+[dev-dependencies]
+tokio = { version = "1.35", features = ["full", "test-util"] }
+tempfile = "3.8"

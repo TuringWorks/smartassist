@@ -1,0 +1,21 @@
+[package]
+name = "hello-plugin"
+version = "0.1.0"
+edition = "2021"
+description = "Example SmartAssist plugin demonstrating the Plugin SDK"
+license = "MIT"
+
+[dependencies]
+smartassist-plugin-sdk = { path = "../../crates/smartassist-plugin-sdk" }
+smartassist-core = { path = "../../crates/smartassist-core" }
+
+async-trait = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tracing = "0.1"
+
+[dev-dependencies]
+tokio = { version = "1.35", features = ["rt", "macros"] }
+
+[lib]
+crate-type = ["cdylib", "rlib"]
