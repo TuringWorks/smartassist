@@ -202,6 +202,59 @@ impl Config {
         self.agents.agents.get(id)
     }
 
+    /// Load configuration from the default path, falling back to defaults if no file exists.
+    ///
+    /// When no config file is found, environment variables are inspected to auto-detect
+    /// the provider and configure a default agent. This enables zero-config startup when
+    /// an API key is set in the environment.
+    pub fn load_or_default() -> Self {
+        match Self::load_default() {
+            Ok(config) => config,
+            Err(ConfigError::NotFound(_)) => Self::from_env_defaults(),
+            Err(_) => Self::default(),
+        }
+    }
+
+    /// Create a Config from defaults, enhanced by environment variable detection.
+    ///
+    /// Probes `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY` to auto-select
+    /// a provider and model. Creates a "default" agent when a key is detected.
+    pub fn from_env_defaults() -> Self {
+        use crate::env;
+
+        let mut config = Self::default();
+
+        // Auto-detect provider from env vars, in priority order
+        let detected = if env::get_var(env::vars::ANTHROPIC_API_KEY).is_some() {
+            Some("anthropic/claude-sonnet-4-5-20250929")
+        } else if env::get_var(env::vars::OPENAI_API_KEY).is_some() {
+            Some("openai/gpt-4o")
+        } else if env::get_var(env::vars::GOOGLE_API_KEY).is_some() {
+            Some("google/gemini-2.0-flash")
+        } else {
+            None
+        };
+
+        if let Some(model) = detected {
+            config.agents.defaults.model = Some(model.to_string());
+
+            // Create a default agent so the gateway has something to route to
+            let mut agent = crate::types::AgentConfig::default();
+            agent.id = crate::types::AgentId::new("default");
+            agent.name = Some("Default Agent".to_string());
+            agent.model = Some(model.to_string());
+            config.agents.agents.insert("default".to_string(), agent);
+            config.agents.default = Some("default".to_string());
+        }
+
+        // Honor env override for port
+        if let Some(port) = env::get_u16("SMARTASSIST_PORT") {
+            config.gateway.port = port;
+        }
+
+        config
+    }
+
     /// Get the default agent ID.
     pub fn default_agent_id(&self) -> Option<&str> {
         self.agents.default.as_deref().or_else(|| {
@@ -251,9 +304,127 @@ impl ConfigBuilder {
         self
     }
 
+    /// Add an agent configuration. The first agent added becomes the default.
+    pub fn add_agent(mut self, id: impl Into<String>, agent: crate::types::AgentConfig) -> Self {
+        let id = id.into();
+        if self.config.agents.default.is_none() {
+            self.config.agents.default = Some(id.clone());
+        }
+        self.config.agents.agents.insert(id, agent);
+        self
+    }
+
+    /// Set the default thinking level for all agents.
+    pub fn thinking_level(mut self, level: crate::types::ThinkingLevel) -> Self {
+        self.config.agents.defaults.thinking_level = level;
+        self
+    }
+
+    /// Set the log level.
+    pub fn log_level(mut self, level: super::LogLevel) -> Self {
+        self.config.logging.level = level;
+        self
+    }
+
+    /// Set the session scope.
+    pub fn session_scope(mut self, scope: super::SessionScope) -> Self {
+        self.config.session.scope = scope;
+        self
+    }
+
+    /// Set the session reset mode.
+    pub fn session_reset_mode(mut self, mode: super::SessionResetMode) -> Self {
+        self.config.session.reset.mode = mode;
+        self
+    }
+
+    /// Set the default sandbox profile.
+    pub fn sandbox_profile(mut self, profile: crate::types::SandboxProfile) -> Self {
+        self.config.security.sandbox.default_profile = profile;
+        self
+    }
+
+    /// Set the memory provider.
+    pub fn memory_provider(mut self, provider: super::MemoryProvider) -> Self {
+        self.config.memory.provider = provider;
+        self
+    }
+
+    /// Set the control UI auth mode.
+    pub fn control_ui_auth_mode(mut self, mode: super::ControlUiAuthMode) -> Self {
+        self.config.gateway.control_ui.auth.mode = mode;
+        self
+    }
+
+    /// Add a Telegram account, enabling the channel.
+    pub fn telegram_account(
+        mut self,
+        account_id: impl Into<String>,
+        account: super::TelegramAccountConfig,
+    ) -> Self {
+        let telegram = self
+            .config
+            .channels
+            .telegram
+            .get_or_insert(super::TelegramConfig {
+                enabled: true,
+                accounts: Default::default(),
+            });
+        telegram.accounts.insert(account_id.into(), account);
+        self
+    }
+
+    /// Add a Discord account, enabling the channel.
+    pub fn discord_account(
+        mut self,
+        account_id: impl Into<String>,
+        account: super::DiscordAccountConfig,
+    ) -> Self {
+        let discord = self
+            .config
+            .channels
+            .discord
+            .get_or_insert(super::DiscordConfig {
+                enabled: true,
+                accounts: Default::default(),
+            });
+        discord.accounts.insert(account_id.into(), account);
+        self
+    }
+
+    /// Add a Slack account, enabling the channel.
+    pub fn slack_account(
+        mut self,
+        account_id: impl Into<String>,
+        account: super::SlackAccountConfig,
+    ) -> Self {
+        let slack = self
+            .config
+            .channels
+            .slack
+            .get_or_insert(super::SlackConfig {
+                enabled: true,
+                accounts: Default::default(),
+            });
+        slack.accounts.insert(account_id.into(), account);
+        self
+    }
+
+    /// Add a route binding.
+    pub fn route(mut self, binding: super::RouteBinding) -> Self {
+        self.config.routing.bindings.push(binding);
+        self
+    }
+
     /// Build the config.
     pub fn build(self) -> Config {
         self.config
+    }
+
+    /// Validate and build the config, returning an error if validation fails.
+    pub fn build_validated(self) -> Result<Config, ConfigError> {
+        self.config.validate()?;
+        Ok(self.config)
     }
 }
 
@@ -567,5 +738,114 @@ mod tests {
     fn test_default_agent_id_no_agents() {
         let config = Config::default();
         assert!(config.default_agent_id().is_none());
+    }
+
+    #[test]
+    fn test_load_or_default_returns_valid_config() {
+        // With no config file present, should still produce a valid config
+        let config = Config::load_or_default();
+        assert!(config.validate().is_ok());
+        assert_eq!(config.gateway.port, 18789);
+    }
+
+    #[test]
+    fn test_from_env_defaults_no_keys() {
+        // When no API keys are detected, should return bare defaults with no agents
+        // Note: this test may detect keys if they're in the environment;
+        // the important thing is it doesn't panic and validates.
+        let config = Config::from_env_defaults();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_config_builder_add_agent() {
+        let mut agent = crate::types::AgentConfig::default();
+        agent.model = Some("anthropic/claude-sonnet-4-5-20250929".to_string());
+
+        let config = ConfigBuilder::new()
+            .add_agent("my-bot", agent)
+            .build();
+
+        assert_eq!(config.agents.default, Some("my-bot".to_string()));
+        assert!(config.agents.agents.contains_key("my-bot"));
+    }
+
+    #[test]
+    fn test_config_builder_add_agent_first_becomes_default() {
+        let agent1 = crate::types::AgentConfig::default();
+        let agent2 = crate::types::AgentConfig::default();
+
+        let config = ConfigBuilder::new()
+            .add_agent("first", agent1)
+            .add_agent("second", agent2)
+            .build();
+
+        assert_eq!(config.agents.default, Some("first".to_string()));
+    }
+
+    #[test]
+    fn test_config_builder_build_validated_catches_errors() {
+        let result = ConfigBuilder::new().port(0).build_validated();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_config_builder_build_validated_success() {
+        let result = ConfigBuilder::new()
+            .default_model("anthropic/claude-sonnet-4-5-20250929")
+            .build_validated();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_config_builder_all_setters() {
+        let config = ConfigBuilder::new()
+            .port(9090)
+            .bind(super::super::BindMode::Lan)
+            .log_level(super::super::LogLevel::Debug)
+            .session_scope(super::super::SessionScope::Global)
+            .session_reset_mode(super::super::SessionResetMode::Idle)
+            .sandbox_profile(crate::types::SandboxProfile::Strict)
+            .memory_provider(super::super::MemoryProvider::VectorOnly)
+            .thinking_level(crate::types::ThinkingLevel::Medium)
+            .control_ui_auth_mode(super::super::ControlUiAuthMode::Identity)
+            .build();
+
+        assert_eq!(config.gateway.port, 9090);
+        assert_eq!(config.gateway.bind, super::super::BindMode::Lan);
+        assert_eq!(config.logging.level, super::super::LogLevel::Debug);
+        assert_eq!(config.session.scope, super::super::SessionScope::Global);
+        assert_eq!(
+            config.session.reset.mode,
+            super::super::SessionResetMode::Idle
+        );
+        assert_eq!(
+            config.security.sandbox.default_profile,
+            crate::types::SandboxProfile::Strict
+        );
+        assert_eq!(
+            config.memory.provider,
+            super::super::MemoryProvider::VectorOnly
+        );
+        assert_eq!(
+            config.agents.defaults.thinking_level,
+            crate::types::ThinkingLevel::Medium
+        );
+    }
+
+    #[test]
+    fn test_config_builder_route() {
+        let config = ConfigBuilder::new()
+            .route(super::super::RouteBinding {
+                agent_id: "main".to_string(),
+                match_channel: Some("telegram".to_string()),
+                match_account: None,
+                match_peer: None,
+                match_guild: None,
+            })
+            .build();
+
+        assert_eq!(config.routing.bindings.len(), 1);
+        assert_eq!(config.routing.bindings[0].agent_id, "main");
     }
 }

@@ -86,7 +86,7 @@ pub enum AgentCommand {
 pub async fn run(args: AgentArgs) -> anyhow::Result<()> {
     match args.command {
         AgentCommand::List => {
-            let config = Config::load_default().unwrap_or_default();
+            let config = Config::load_or_default();
             if config.agents.agents.is_empty() {
                 println!("No agents configured.");
                 println!("  Run `smartassist agent create <id>` to add one.");
@@ -103,7 +103,7 @@ pub async fn run(args: AgentArgs) -> anyhow::Result<()> {
         }
 
         AgentCommand::Show { id } => {
-            let config = Config::load_default().unwrap_or_default();
+            let config = Config::load_or_default();
             match config.agents.agents.get(&id) {
                 Some(agent) => {
                     let json = serde_json::to_string_pretty(agent)?;
@@ -116,7 +116,7 @@ pub async fn run(args: AgentArgs) -> anyhow::Result<()> {
         }
 
         AgentCommand::Create { id, model, system } => {
-            let mut config = Config::load_default().unwrap_or_default();
+            let mut config = Config::load_or_default();
 
             if config.agents.agents.contains_key(&id) {
                 anyhow::bail!("Agent already exists: {}", id);
@@ -141,7 +141,7 @@ pub async fn run(args: AgentArgs) -> anyhow::Result<()> {
         }
 
         AgentCommand::Delete { id } => {
-            let mut config = Config::load_default().unwrap_or_default();
+            let mut config = Config::load_or_default();
 
             if config.agents.agents.remove(&id).is_none() {
                 anyhow::bail!("Agent not found: {}", id);
@@ -157,7 +157,7 @@ pub async fn run(args: AgentArgs) -> anyhow::Result<()> {
         }
 
         AgentCommand::Message { agent, message } => {
-            let config = Config::load_default().unwrap_or_default();
+            let config = Config::load_or_default();
             let agent_id = agent.unwrap_or_else(|| "default".to_string());
             let port = config.gateway.port;
 

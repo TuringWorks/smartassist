@@ -158,7 +158,7 @@ pub async fn run(args: GatewayArgs) -> anyhow::Result<()> {
         }
 
         GatewayCommand::Stop => {
-            let cfg = config::Config::load_default().unwrap_or_default();
+            let cfg = config::Config::load_or_default();
             let port = cfg.gateway.port;
 
             match TcpStream::connect(format!("127.0.0.1:{}", port)) {
@@ -177,7 +177,7 @@ pub async fn run(args: GatewayArgs) -> anyhow::Result<()> {
         }
 
         GatewayCommand::Status => {
-            let cfg = config::Config::load_default().unwrap_or_default();
+            let cfg = config::Config::load_or_default();
             let port = cfg.gateway.port;
 
             match TcpStream::connect(format!("127.0.0.1:{}", port)) {

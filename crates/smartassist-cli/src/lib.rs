@@ -4,6 +4,7 @@ pub mod commands;
 pub mod onboard;
 pub mod render;
 pub mod repl;
+pub mod wizard;
 
 use clap::{Parser, Subcommand};
 
@@ -48,11 +49,15 @@ pub enum Commands {
     /// Manage plugins
     Plugins(commands::plugins::PluginsArgs),
 
-    /// Initialize SmartAssist configuration
+    /// Initialize SmartAssist configuration (interactive wizard)
     Init {
         /// Overwrite existing configuration
         #[arg(long)]
         force: bool,
+
+        /// Quick setup (skip optional steps like channels and gateway config)
+        #[arg(long)]
+        quick: bool,
     },
 
     /// Show version information
@@ -69,8 +74,8 @@ pub async fn run(cli: Cli) -> anyhow::Result<()> {
         Commands::Doctor(args) => commands::doctor::run(args).await,
         Commands::Secrets(args) => commands::secrets::run(args).await,
         Commands::Plugins(args) => commands::plugins::run(args).await,
-        Commands::Init { force } => {
-            onboard::OnboardWizard::new(force).run().await
+        Commands::Init { force, quick } => {
+            wizard::SetupWizard::new(force, quick).run().await
         }
         Commands::Version => {
             println!("smartassist {}", env!("CARGO_PKG_VERSION"));
@@ -214,7 +219,7 @@ mod tests {
     fn test_parse_init_force() {
         let cli = Cli::try_parse_from(["smartassist", "init", "--force"]).unwrap();
         match cli.command {
-            Commands::Init { force } => {
+            Commands::Init { force, quick: _ } => {
                 assert!(force);
             }
             _ => panic!("Expected Init command"),

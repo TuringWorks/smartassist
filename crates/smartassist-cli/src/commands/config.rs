@@ -49,13 +49,13 @@ pub enum ConfigCommand {
 pub async fn run(args: ConfigArgs) -> anyhow::Result<()> {
     match args.command {
         ConfigCommand::Show => {
-            let config = Config::load_default().unwrap_or_default();
+            let config = Config::load_or_default();
             let json = serde_json::to_string_pretty(&config)?;
             println!("{}", json);
         }
 
         ConfigCommand::Get { key } => {
-            let config = Config::load_default().unwrap_or_default();
+            let config = Config::load_or_default();
             let json = serde_json::to_value(&config)?;
 
             let value = key.split('.').fold(Some(&json), |acc, k| {
@@ -70,7 +70,7 @@ pub async fn run(args: ConfigArgs) -> anyhow::Result<()> {
 
         ConfigCommand::Set { key, value } => {
             // Load current config (or default if none exists yet)
-            let config = Config::load_default().unwrap_or_default();
+            let config = Config::load_or_default();
             let mut json = serde_json::to_value(&config)?;
 
             // Walk the dot-separated key path, creating intermediate objects as needed
@@ -112,10 +112,12 @@ pub async fn run(args: ConfigArgs) -> anyhow::Result<()> {
 
             paths::ensure_dirs()?;
 
-            let config = Config::default();
+            // Use load_or_default() to pick up env vars (e.g. auto-detect provider)
+            let config = Config::load_or_default();
             config.save_default()?;
 
             println!("Created config file: {:?}", path);
+            println!("  Tip: Run 'smartassist init' for guided setup.");
         }
 
         ConfigCommand::Path => {

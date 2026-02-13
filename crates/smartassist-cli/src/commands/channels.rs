@@ -72,7 +72,7 @@ fn print_channel_status(name: &str, configured: bool, enabled: bool, account_cou
 pub async fn run(args: ChannelsArgs) -> anyhow::Result<()> {
     match args.command {
         ChannelsCommand::List => {
-            let config = Config::load_default().unwrap_or_default();
+            let config = Config::load_or_default();
             println!("Configured channels:\n");
             println!("  {:<12} {}", "CHANNEL", "STATUS");
             println!("  {}", "-".repeat(40));
@@ -114,7 +114,7 @@ pub async fn run(args: ChannelsArgs) -> anyhow::Result<()> {
         }
 
         ChannelsCommand::Status { probe } => {
-            let config = Config::load_default().unwrap_or_default();
+            let config = Config::load_or_default();
             println!("Channel status:\n");
             println!("  {:<12} {}", "CHANNEL", "STATUS");
             println!("  {}", "-".repeat(40));
@@ -171,7 +171,7 @@ pub async fn run(args: ChannelsArgs) -> anyhow::Result<()> {
                 );
             }
 
-            let mut config = Config::load_default().unwrap_or_default();
+            let mut config = Config::load_or_default();
             match name.as_str() {
                 "telegram" => {
                     match config.channels.telegram.as_mut() {
@@ -246,7 +246,7 @@ pub async fn run(args: ChannelsArgs) -> anyhow::Result<()> {
                 );
             }
 
-            let mut config = Config::load_default().unwrap_or_default();
+            let mut config = Config::load_or_default();
             match name.as_str() {
                 "telegram" => {
                     if let Some(t) = config.channels.telegram.as_mut() {
@@ -291,7 +291,7 @@ pub async fn run(args: ChannelsArgs) -> anyhow::Result<()> {
             }
 
             // Load config as a raw JSON value so we can set arbitrary keys
-            let config = Config::load_default().unwrap_or_default();
+            let config = Config::load_or_default();
             let mut json = serde_json::to_value(&config)?;
 
             // Ensure the channels.{name} object exists
