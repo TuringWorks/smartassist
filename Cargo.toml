@@ -13,6 +13,7 @@ members = [
     "crates/smartassist-secrets",
     "examples/hello-plugin",
     "tests/integration",
+    "smartassist-control/src-tauri",
 ]
 
 [workspace.package]

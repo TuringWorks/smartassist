@@ -1,0 +1,251 @@
+.field {
+  margin-bottom: 16px;
+}
+
+.label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: #c9d1d9;
+  margin-bottom: 6px;
+}
+
+.help {
+  font-size: 12px;
+  color: #8b949e;
+  margin-top: 4px;
+}
+
+.input {
+  width: 100%;
+  padding: 8px 12px;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  color: #e1e4e8;
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.input:focus {
+  border-color: #58a6ff;
+}
+
+.input::placeholder {
+  color: #484f58;
+}
+
+.numberInput {
+  composes: input;
+  max-width: 160px;
+}
+
+.select {
+  composes: input;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%238b949e' viewBox='0 0 16 16'%3E%3Cpath d='M4.427 7.427l3.396 3.396a.25.25 0 00.354 0l3.396-3.396A.25.25 0 0011.396 7H4.604a.25.25 0 00-.177.427z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 32px;
+}
+
+.secretWrapper {
+  display: flex;
+  gap: 8px;
+}
+
+.secretInput {
+  composes: input;
+  flex: 1;
+}
+
+.secretToggle {
+  padding: 8px 12px;
+  background: #21262d;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  color: #8b949e;
+  cursor: pointer;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.secretToggle:hover {
+  color: #c9d1d9;
+  border-color: #484f58;
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.toggleTrack {
+  width: 40px;
+  height: 22px;
+  border-radius: 11px;
+  background: #30363d;
+  position: relative;
+  transition: background 0.2s;
+}
+
+.toggleTrackOn {
+  background: #238636;
+}
+
+.toggleThumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #e1e4e8;
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  transition: transform 0.2s;
+}
+
+.toggleThumbOn {
+  transform: translateX(18px);
+}
+
+.toggleLabel {
+  font-size: 14px;
+  color: #c9d1d9;
+}
+
+.section {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.sectionTitle {
+  font-size: 16px;
+  font-weight: 600;
+  color: #f0f6fc;
+}
+
+.sectionArrow {
+  color: #8b949e;
+  font-size: 12px;
+  transition: transform 0.2s;
+}
+
+.sectionArrowOpen {
+  transform: rotate(90deg);
+}
+
+.sectionBody {
+  padding: 0 20px 20px;
+  border-top: 1px solid #30363d;
+}
+
+.saveBar {
+  position: sticky;
+  bottom: 0;
+  background: #161b22;
+  border-top: 1px solid #30363d;
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  z-index: 10;
+}
+
+.btnPrimary {
+  padding: 8px 20px;
+  background: #238636;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btnPrimary:hover {
+  background: #2ea043;
+}
+
+.btnPrimary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btnSecondary {
+  padding: 8px 20px;
+  background: #21262d;
+  color: #c9d1d9;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btnSecondary:hover {
+  background: #30363d;
+}
+
+.btnDanger {
+  padding: 8px 20px;
+  background: transparent;
+  color: #f85149;
+  border: 1px solid #f85149;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.btnDanger:hover {
+  background: #f851491a;
+}
+
+.toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  padding: 12px 20px;
+  border-radius: 6px;
+  font-size: 14px;
+  z-index: 100;
+  animation: slideIn 0.2s ease-out;
+}
+
+.toastSuccess {
+  background: #238636;
+  color: #fff;
+}
+
+.toastError {
+  background: #da3633;
+  color: #fff;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateY(12px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}

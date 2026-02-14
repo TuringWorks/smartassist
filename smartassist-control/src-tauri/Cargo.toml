@@ -1,0 +1,30 @@
+[package]
+name = "smartassist-control"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "SmartAssist desktop control panel"
+
+[lib]
+name = "smartassist_control_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "devtools"] }
+tauri-plugin-shell = "2"
+smartassist-core = { path = "../../crates/smartassist-core" }
+smartassist-secrets = { path = "../../crates/smartassist-secrets" }
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["process", "sync", "time"] }
+anyhow.workspace = true
+tokio-tungstenite = { workspace = true }
+futures = { workspace = true }
+tracing.workspace = true
+dashmap.workspace = true
+uuid = { workspace = true }
+reqwest = { workspace = true }
