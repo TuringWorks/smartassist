@@ -1,3 +1,5 @@
 /target
 **/*.rs.bak
 .DS_Store
+/smartassist-control/node_modules
+/smartassist-control/dist
