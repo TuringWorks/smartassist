@@ -262,6 +262,106 @@ impl MethodHandler for SessionsDeleteHandler {
     }
 }
 
+/// Parameters for sessions.create method.
+#[derive(Debug, Deserialize)]
+pub struct SessionsCreateParams {
+    /// Session key.
+    pub session_key: String,
+
+    /// Agent ID.
+    pub agent_id: Option<String>,
+
+    /// System prompt.
+    pub system: Option<String>,
+}
+
+/// Sessions create method handler.
+pub struct SessionsCreateHandler {
+    context: Arc<HandlerContext>,
+}
+
+impl SessionsCreateHandler {
+    pub fn new(context: Arc<HandlerContext>) -> Self {
+        Self { context }
+    }
+}
+
+#[async_trait]
+impl MethodHandler for SessionsCreateHandler {
+    async fn call(&self, params: Option<serde_json::Value>) -> Result<serde_json::Value> {
+        let params: SessionsCreateParams = params
+            .ok_or_else(|| GatewayError::InvalidParams("Missing parameters".to_string()))?
+            .try_into()
+            .map_err(|e: serde_json::Error| GatewayError::InvalidParams(e.to_string()))?;
+
+        debug!("Sessions create request: {}", params.session_key);
+
+        let mut sessions = self.context.sessions.write().await;
+        let session = sessions.entry(params.session_key.clone()).or_insert_with(|| super::SessionData {
+            key: params.session_key.clone(),
+            agent_id: params.agent_id.clone(),
+            status: "active".to_string(),
+            messages: Vec::new(),
+            created_at: chrono::Utc::now(),
+            last_activity: Some(chrono::Utc::now()),
+        });
+
+        if let Some(system) = params.system {
+            session.messages.push(serde_json::json!({
+                "role": "system",
+                "content": system,
+            }));
+        }
+
+        Ok(serde_json::json!({
+            "session_key": session.key,
+            "created": true,
+            "status": session.status,
+        }))
+    }
+}
+
+/// Parameters for sessions.history method.
+#[derive(Debug, Deserialize)]
+pub struct SessionsHistoryParams {
+    /// Session key.
+    pub session_key: String,
+}
+
+/// Sessions history method handler.
+pub struct SessionsHistoryHandler {
+    context: Arc<HandlerContext>,
+}
+
+impl SessionsHistoryHandler {
+    pub fn new(context: Arc<HandlerContext>) -> Self {
+        Self { context }
+    }
+}
+
+#[async_trait]
+impl MethodHandler for SessionsHistoryHandler {
+    async fn call(&self, params: Option<serde_json::Value>) -> Result<serde_json::Value> {
+        let params: SessionsHistoryParams = params
+            .ok_or_else(|| GatewayError::InvalidParams("Missing parameters".to_string()))?
+            .try_into()
+            .map_err(|e: serde_json::Error| GatewayError::InvalidParams(e.to_string()))?;
+
+        debug!("Sessions history request: {}", params.session_key);
+
+        let sessions = self.context.sessions.read().await;
+        let session = sessions.get(&params.session_key).ok_or_else(|| {
+            GatewayError::NotFound(format!("Session '{}' not found", params.session_key))
+        })?;
+
+        Ok(serde_json::json!({
+            "session_key": session.key,
+            "messages": session.messages,
+            "message_count": session.messages.len(),
+        }))
+    }
+}
+
 // TryFrom implementations
 
 impl TryFrom<serde_json::Value> for SessionsResolveParams {
@@ -281,6 +381,22 @@ impl TryFrom<serde_json::Value> for SessionsPatchParams {
 }
 
 impl TryFrom<serde_json::Value> for SessionsDeleteParams {
+    type Error = serde_json::Error;
+
+    fn try_from(value: serde_json::Value) -> std::result::Result<Self, Self::Error> {
+        serde_json::from_value(value)
+    }
+}
+
+impl TryFrom<serde_json::Value> for SessionsCreateParams {
+    type Error = serde_json::Error;
+
+    fn try_from(value: serde_json::Value) -> std::result::Result<Self, Self::Error> {
+        serde_json::from_value(value)
+    }
+}
+
+impl TryFrom<serde_json::Value> for SessionsHistoryParams {
     type Error = serde_json::Error;
 
     fn try_from(value: serde_json::Value) -> std::result::Result<Self, Self::Error> {

@@ -51,7 +51,8 @@ pub use nodes::{
 };
 pub use send::{SendMessageHandler, SendPollHandler};
 pub use sessions::{
-    SessionsDeleteHandler, SessionsListHandler, SessionsPatchHandler, SessionsResolveHandler,
+    SessionsCreateHandler, SessionsDeleteHandler, SessionsHistoryHandler, SessionsListHandler,
+    SessionsPatchHandler, SessionsResolveHandler,
 };
 pub use skills::{SkillsBinsHandler, SkillsInstallHandler, SkillsStatusHandler, SkillsUpdateHandler};
 pub use system::{
@@ -87,6 +88,9 @@ pub async fn register_all(registry: &MethodRegistry, context: HandlerContext) {
         .register("sessions.list", Arc::new(SessionsListHandler::new(ctx.clone())))
         .await;
     registry
+        .register("sessions.create", Arc::new(SessionsCreateHandler::new(ctx.clone())))
+        .await;
+    registry
         .register("sessions.resolve", Arc::new(SessionsResolveHandler::new(ctx.clone())))
         .await;
     registry
@@ -94,6 +98,9 @@ pub async fn register_all(registry: &MethodRegistry, context: HandlerContext) {
         .await;
     registry
         .register("sessions.delete", Arc::new(SessionsDeleteHandler::new(ctx.clone())))
+        .await;
+    registry
+        .register("sessions.history", Arc::new(SessionsHistoryHandler::new(ctx.clone())))
         .await;
 
     // Health methods
