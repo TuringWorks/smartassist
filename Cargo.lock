@@ -8817,6 +8817,7 @@ dependencies = [
  "serde_json",
  "smartassist-core",
  "smartassist-secrets",
+ "smartassist-security",
  "tauri",
  "tauri-build",
  "tauri-plugin-shell",

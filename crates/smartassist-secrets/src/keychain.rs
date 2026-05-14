@@ -185,10 +185,15 @@ fn delete_from_keychain() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    // Serialize tests that touch the process environment.
+    static TEST_MUTEX: Mutex<()> = Mutex::new(());
 
     /// Test the env-var path, which works on all platforms (including CI).
     #[test]
     fn test_master_key_from_env_var() {
+        let _guard = TEST_MUTEX.lock().unwrap();
         let key = crypto::generate_master_key();
         let hex_key = hex::encode(&key);
 
@@ -203,6 +208,7 @@ mod tests {
 
     #[test]
     fn test_invalid_hex_in_env_var() {
+        let _guard = TEST_MUTEX.lock().unwrap();
         std::env::set_var(ENV_VAR, "not-valid-hex!");
         let result = get_or_create_master_key();
         assert!(result.is_err());
@@ -211,6 +217,7 @@ mod tests {
 
     #[test]
     fn test_wrong_length_key_in_env_var() {
+        let _guard = TEST_MUTEX.lock().unwrap();
         // 16 bytes instead of 32.
         std::env::set_var(ENV_VAR, hex::encode([0u8; 16]));
         let result = get_or_create_master_key();

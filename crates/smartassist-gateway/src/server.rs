@@ -243,6 +243,9 @@ impl Gateway {
         // Register all handlers
         crate::handlers::register_all(&gateway.state.methods, context).await;
 
+        // Register built-in methods (system.info, ping, system.methods)
+        crate::methods::register_builtin(gateway.state.methods.clone()).await;
+
         gateway
     }
 
@@ -258,6 +261,9 @@ impl Gateway {
 
         // Register all handlers
         crate::handlers::register_all(&gateway.state.methods, context).await;
+
+        // Register built-in methods (system.info, ping, system.methods)
+        crate::methods::register_builtin(gateway.state.methods.clone()).await;
 
         gateway
     }

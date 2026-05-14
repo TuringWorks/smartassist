@@ -4,7 +4,7 @@ use clap::Parser;
 use cucumber::{given, then, when};
 use crate::SmartAssistWorld;
 
-#[when(regex = r#"^I run "smartassist tui --agent (\w+)"$"#)]
+#[when(regex = r#"^I run "smartassist tui --agent ([^"]+)"$"#)]
 async fn run_tui_with_agent(world: &mut SmartAssistWorld, agent: String) {
     let cli = smartassist_cli::Cli::parse_from(["smartassist", "tui", "--agent", &agent]);
     match cli.command {
@@ -26,7 +26,7 @@ async fn run_tui_without_agent(world: &mut SmartAssistWorld) {
     }
 }
 
-#[then(regex = r#"^the CLI should parse the Tui command with agent "(\w+)"$"#)]
+#[then(regex = r#"^the CLI should parse the Tui command with agent "([^"]+)"$"#)]
 async fn tui_parsed_agent(world: &mut SmartAssistWorld, expected: String) {
     assert_eq!(
         world.parsed_tui_agent,
@@ -46,7 +46,7 @@ async fn tui_parsed_no_agent(world: &mut SmartAssistWorld) {
     );
 }
 
-#[given(regex = r#"^a TUI app with agent "(\w+)"$"#)]
+#[given(regex = r#"^a TUI app with agent "([^"]+)"$"#)]
 async fn tui_app_with_agent(world: &mut SmartAssistWorld, agent: String) {
     world.tui_agent = Some(agent);
     world.tui_messages.clear();

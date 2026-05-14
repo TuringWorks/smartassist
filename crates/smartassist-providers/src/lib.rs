@@ -67,6 +67,9 @@ pub mod tts_azure;
 #[cfg(feature = "tts-local")]
 pub mod tts_local;
 
+#[cfg(feature = "ollama")]
+pub mod ollama;
+
 pub mod media;
 
 pub use error::{ProviderError, Result};

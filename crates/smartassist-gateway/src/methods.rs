@@ -153,11 +153,14 @@ impl MethodHandler for ListMethodsHandler {
 }
 
 /// Register built-in methods.
-pub async fn register_builtin(registry: &MethodRegistry) {
+pub async fn register_builtin(registry: Arc<MethodRegistry>) {
     registry
         .register("system.info", Arc::new(SystemInfoHandler))
         .await;
     registry.register("ping", Arc::new(PingHandler)).await;
+    registry
+        .register("system.methods", Arc::new(ListMethodsHandler::new(registry.clone())))
+        .await;
 }
 
 #[cfg(test)]
@@ -166,8 +169,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_method_registry() {
-        let registry = MethodRegistry::new();
-        register_builtin(&registry).await;
+        let registry = Arc::new(MethodRegistry::new());
+        register_builtin(registry.clone()).await;
 
         let result = registry.call("ping", None).await.unwrap();
         assert!(result.get("pong").is_some());

@@ -4,7 +4,8 @@ use clap::Args;
 use smartassist_core::config::{self, BindMode};
 use smartassist_gateway::{Gateway, GatewayConfig};
 use smartassist_providers::{
-    anthropic::AnthropicProvider, google::GoogleProvider, openai::OpenAIProvider, Provider,
+    anthropic::AnthropicProvider, google::GoogleProvider, openai::OpenAIProvider,
+    ollama::OllamaProvider, Provider,
 };
 use std::net::TcpStream;
 use std::sync::Arc;
@@ -34,7 +35,7 @@ pub enum GatewayCommand {
         #[arg(short, long)]
         force: bool,
 
-        /// Model provider (anthropic, openai, google)
+        /// Model provider (anthropic, openai, google, ollama)
         #[arg(long, env = "SMARTASSIST_PROVIDER", default_value = "anthropic")]
         provider: String,
 
@@ -139,8 +140,18 @@ pub async fn run(args: GatewayArgs) -> anyhow::Result<()> {
                         }
                     }
                 }
+                "ollama" => {
+                    let p = OllamaProvider::from_env()?;
+                    let p = if let Some(ref m) = model {
+                        p.with_default_model(m.clone())
+                    } else {
+                        p
+                    };
+                    info!("Using Ollama provider");
+                    Some(Arc::new(p))
+                }
                 other => {
-                    anyhow::bail!("Unknown provider: {}. Valid options: anthropic, openai, google", other);
+                    anyhow::bail!("Unknown provider: {}. Valid options: anthropic, openai, google, ollama", other);
                 }
             };
 

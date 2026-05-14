@@ -1,4 +1,4 @@
-import { Show, For, createSignal } from "solid-js";
+import { Show, Index, createSignal } from "solid-js";
 import { useConfig } from "../lib/useConfig";
 import type { ThinkingLevel, ToolProfile, AgentConfig } from "../lib/types";
 import {
@@ -89,116 +89,119 @@ export default function Agents() {
             </Section>
 
             <Section title="Agents">
-              <For each={agentEntries()}>
-                {([id, agent]) => (
-                  <div
-                    style={{
-                      background: "#0d1117",
-                      border: "1px solid #30363d",
-                      "border-radius": "6px",
-                      padding: "16px",
-                      "margin-bottom": "12px",
-                    }}
-                  >
+              <Index each={agentEntries()}>
+                {(entry) => {
+                  const [id, agent] = entry();
+                  return (
                     <div
                       style={{
-                        display: "flex",
-                        "justify-content": "space-between",
-                        "align-items": "center",
-                        "margin-bottom": editingAgent() === id ? "16px" : "0",
-                        cursor: "pointer",
+                        background: "#0d1117",
+                        border: "1px solid #30363d",
+                        "border-radius": "6px",
+                        padding: "16px",
+                        "margin-bottom": "12px",
                       }}
-                      onClick={() =>
-                        setEditingAgent(editingAgent() === id ? null : id)
-                      }
                     >
-                      <div>
-                        <strong style={{ color: "#f0f6fc" }}>
-                          {agent.name || id}
-                        </strong>
-                        <span
-                          style={{
-                            color: "#8b949e",
-                            "font-size": "13px",
-                            "margin-left": "8px",
-                          }}
-                        >
-                          {agent.model ?? cfg().agents.defaults.model ?? "no model"}
-                        </span>
-                      </div>
-                      <span style={{ color: "#8b949e", "font-size": "12px" }}>
-                        {editingAgent() === id ? "Collapse" : "Edit"}
-                      </span>
-                    </div>
-
-                    <Show when={editingAgent() === id}>
-                      <TextInput
-                        label="Name"
-                        value={agent.name ?? ""}
-                        onChange={(v) =>
-                          updateConfig((c) => {
-                            c.agents.agents[id].name = v || undefined;
-                            return c;
-                          })
-                        }
-                      />
-                      <TextInput
-                        label="Model"
-                        value={agent.model ?? ""}
-                        onChange={(v) =>
-                          updateConfig((c) => {
-                            c.agents.agents[id].model = v || undefined;
-                            return c;
-                          })
-                        }
-                        placeholder="provider/model-id"
-                      />
-                      <EnumSelect<ThinkingLevel>
-                        label="Thinking Level"
-                        value={agent.thinking_level}
-                        options={[
-                          { value: "off", label: "Off" },
-                          { value: "minimal", label: "Minimal" },
-                          { value: "low", label: "Low" },
-                          { value: "medium", label: "Medium" },
-                          { value: "high", label: "High" },
-                          { value: "xhigh", label: "XHigh" },
-                        ]}
-                        onChange={(v) =>
-                          updateConfig((c) => {
-                            c.agents.agents[id].thinking_level = v;
-                            return c;
-                          })
-                        }
-                      />
-                      <TextInput
-                        label="System Prompt"
-                        value={agent.system_prompt ?? ""}
-                        onChange={(v) =>
-                          updateConfig((c) => {
-                            c.agents.agents[id].system_prompt = v || undefined;
-                            return c;
-                          })
-                        }
-                      />
-                      <button
-                        class={styles.btnDanger}
+                      <div
+                        style={{
+                          display: "flex",
+                          "justify-content": "space-between",
+                          "align-items": "center",
+                          "margin-bottom": editingAgent() === id ? "16px" : "0",
+                          cursor: "pointer",
+                        }}
                         onClick={() =>
-                          updateConfig((c) => {
-                            delete c.agents.agents[id];
-                            if (c.agents.default === id) {
-                              c.agents.default = undefined;
-                            }
-                            return c;
-                          })
+                          setEditingAgent(editingAgent() === id ? null : id)
                         }
                       >
-                        Delete Agent
-                      </button>
-                    </Show>
-                  </div>
-                )}
-              </For>
+                        <div>
+                          <strong style={{ color: "#f0f6fc" }}>
+                            {agent.name || id}
+                          </strong>
+                          <span
+                            style={{
+                              color: "#8b949e",
+                              "font-size": "13px",
+                              "margin-left": "8px",
+                            }}
+                          >
+                            {agent.model ?? cfg().agents.defaults.model ?? "no model"}
+                          </span>
+                        </div>
+                        <span style={{ color: "#8b949e", "font-size": "12px" }}>
+                          {editingAgent() === id ? "Collapse" : "Edit"}
+                        </span>
+                      </div>
+
+                      <Show when={editingAgent() === id}>
+                        <TextInput
+                          label="Name"
+                          value={agent.name ?? ""}
+                          onChange={(v) =>
+                            updateConfig((c) => {
+                              c.agents.agents[id].name = v || undefined;
+                              return c;
+                            })
+                          }
+                        />
+                        <TextInput
+                          label="Model"
+                          value={agent.model ?? ""}
+                          onChange={(v) =>
+                            updateConfig((c) => {
+                              c.agents.agents[id].model = v || undefined;
+                              return c;
+                            })
+                          }
+                          placeholder="provider/model-id"
+                        />
+                        <EnumSelect<ThinkingLevel>
+                          label="Thinking Level"
+                          value={agent.thinking_level}
+                          options={[
+                            { value: "off", label: "Off" },
+                            { value: "minimal", label: "Minimal" },
+                            { value: "low", label: "Low" },
+                            { value: "medium", label: "Medium" },
+                            { value: "high", label: "High" },
+                            { value: "xhigh", label: "XHigh" },
+                          ]}
+                          onChange={(v) =>
+                            updateConfig((c) => {
+                              c.agents.agents[id].thinking_level = v;
+                              return c;
+                            })
+                          }
+                        />
+                        <TextInput
+                          label="System Prompt"
+                          value={agent.system_prompt ?? ""}
+                          onChange={(v) =>
+                            updateConfig((c) => {
+                              c.agents.agents[id].system_prompt = v || undefined;
+                              return c;
+                            })
+                          }
+                        />
+                        <button
+                          class={styles.btnDanger}
+                          onClick={() =>
+                            updateConfig((c) => {
+                              delete c.agents.agents[id];
+                              if (c.agents.default === id) {
+                                c.agents.default = undefined;
+                              }
+                              return c;
+                            })
+                          }
+                        >
+                          Delete Agent
+                        </button>
+                      </Show>
+                    </div>
+                  );
+                }}
+              </Index>
 
               <button
                 class={styles.btnSecondary}

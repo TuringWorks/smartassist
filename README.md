@@ -125,7 +125,7 @@ cargo build -p smartassist-channels --features "telegram,discord,slack,web,signa
           ┌────────────────────┼────────────────────┐
           ▼                    ▼                    ▼
 ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐
-│ smartassist-agent│  │smartassist-      │  │smartassist-memory │
+│ smartassist-agent│  │smartassist-      │  │smartassist-memory│
 │ (Agent runtime)  │  │  channels        │  │ (Context store)  │
 │                  │  │  (Messaging)     │  │                  │
 │  ┌────────────┐  │  │  ┌──────────┐    │  │  ┌────────────┐  │
