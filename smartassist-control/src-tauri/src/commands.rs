@@ -113,6 +113,58 @@ pub async fn gateway_restart(
     state.start(port, &provider).await
 }
 
+/// Run a security audit and return the report.
+#[tauri::command]
+pub async fn run_security_audit(
+    audit_type: String,
+) -> Result<serde_json::Value, String> {
+    use smartassist_security::audit::{AuditReport, AuditRunner};
+    use smartassist_security::exec_surface::ExecSurfaceAuditor;
+    use smartassist_security::config_audit::ConfigSymlinkAuditor;
+    use smartassist_security::dm_policy::DmPolicyAuditor;
+
+    let mut report = AuditReport::new(&audit_type);
+
+    match audit_type.as_str() {
+        "exec_surface" | "all" => {
+            let paths = vec![
+                std::env::current_dir().unwrap_or_default(),
+                smartassist_core::paths::base_dir().unwrap_or_default(),
+            ];
+            let auditor = ExecSurfaceAuditor::new(paths);
+            if let Ok(r) = auditor.run().await {
+                report.findings.extend(r.findings);
+            }
+        }
+        _ => {}
+    }
+
+    match audit_type.as_str() {
+        "config_symlink" | "all" => {
+            let config_dir = smartassist_core::paths::base_dir().unwrap_or_default();
+            let auditor = ConfigSymlinkAuditor::new(&config_dir);
+            if let Ok(r) = auditor.run().await {
+                report.findings.extend(r.findings);
+            }
+        }
+        _ => {}
+    }
+
+    match audit_type.as_str() {
+        "dm_policy" | "all" => {
+            let config_path = smartassist_core::paths::config_file().unwrap_or_default();
+            let auditor = DmPolicyAuditor::new(&config_path);
+            if let Ok(r) = auditor.run().await {
+                report.findings.extend(r.findings);
+            }
+        }
+        _ => {}
+    }
+
+    report.compute_summary();
+    serde_json::to_value(&report).map_err(|e| e.to_string())
+}
+
 /// Forward a JSON-RPC call to the gateway via WebSocket.
 /// Auto-connects if not already connected.
 #[tauri::command]

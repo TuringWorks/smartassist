@@ -23,6 +23,7 @@ pub fn run() {
             commands::gateway_start,
             commands::gateway_stop,
             commands::gateway_restart,
+            commands::run_security_audit,
             commands::rpc_call,
         ])
         .setup(|app| {

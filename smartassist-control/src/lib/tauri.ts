@@ -65,6 +65,29 @@ export async function gatewayRestart(): Promise<void> {
 
 // ── Gateway RPC (via WebSocket) ──────────────────────────────
 
+/** Run a security audit and return the report. */
+export interface AuditReport {
+  audit_name: string;
+  timestamp: string;
+  findings: AuditFinding[];
+  summary: Record<string, number>;
+}
+
+export interface AuditFinding {
+  rule_id: string;
+  title: string;
+  description: string;
+  severity: "info" | "low" | "medium" | "high" | "critical";
+  path?: string;
+  remediation?: string;
+}
+
+export async function runSecurityAudit(
+  auditType: "all" | "exec_surface" | "config_symlink" | "dm_policy",
+): Promise<AuditReport> {
+  return invoke("run_security_audit", { auditType });
+}
+
 /** Make a JSON-RPC call to the running gateway. Auto-connects. */
 export async function rpcCall<T = unknown>(
   method: string,
