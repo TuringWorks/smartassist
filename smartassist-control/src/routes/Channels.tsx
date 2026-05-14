@@ -1,4 +1,4 @@
-import { Show, For } from "solid-js";
+import { Show, Index } from "solid-js";
 import { useConfig } from "../lib/useConfig";
 import {
   TextInput,
@@ -44,56 +44,59 @@ export default function Channels() {
                 }
               />
               <Show when={cfg().channels.telegram?.enabled}>
-                <For
+                <Index
                   each={Object.entries(
                     cfg().channels.telegram?.accounts ?? {},
                   )}
                 >
-                  {([name, acct]) => (
-                    <div
-                      style={{
-                        background: "#0d1117",
-                        border: "1px solid #30363d",
-                        "border-radius": "6px",
-                        padding: "16px",
-                        "margin-top": "12px",
-                      }}
-                    >
-                      <strong style={{ color: "#f0f6fc" }}>{name}</strong>
-                      <SecretInput
-                        label="Bot Token"
-                        value={acct.bot_token}
-                        onChange={(v) =>
-                          updateConfig((c) => {
-                            c.channels.telegram!.accounts[name].bot_token = v;
-                            return c;
-                          })
-                        }
-                      />
-                      <TextInput
-                        label="Username"
-                        value={acct.username ?? ""}
-                        onChange={(v) =>
-                          updateConfig((c) => {
-                            c.channels.telegram!.accounts[name].username =
-                              v || undefined;
-                            return c;
-                          })
-                        }
-                      />
-                      <Toggle
-                        label="Enabled"
-                        value={acct.enabled}
-                        onChange={(v) =>
-                          updateConfig((c) => {
-                            c.channels.telegram!.accounts[name].enabled = v;
-                            return c;
-                          })
-                        }
-                      />
-                    </div>
-                  )}
-                </For>
+                  {(entry) => {
+                    const [name, acct] = entry();
+                    return (
+                      <div
+                        style={{
+                          background: "#0d1117",
+                          border: "1px solid #30363d",
+                          "border-radius": "6px",
+                          padding: "16px",
+                          "margin-top": "12px",
+                        }}
+                      >
+                        <strong style={{ color: "#f0f6fc" }}>{name}</strong>
+                        <SecretInput
+                          label="Bot Token"
+                          value={acct.bot_token}
+                          onChange={(v) =>
+                            updateConfig((c) => {
+                              c.channels.telegram!.accounts[name].bot_token = v;
+                              return c;
+                            })
+                          }
+                        />
+                        <TextInput
+                          label="Username"
+                          value={acct.username ?? ""}
+                          onChange={(v) =>
+                            updateConfig((c) => {
+                              c.channels.telegram!.accounts[name].username =
+                                v || undefined;
+                              return c;
+                            })
+                          }
+                        />
+                        <Toggle
+                          label="Enabled"
+                          value={acct.enabled}
+                          onChange={(v) =>
+                            updateConfig((c) => {
+                              c.channels.telegram!.accounts[name].enabled = v;
+                              return c;
+                            })
+                          }
+                        />
+                      </div>
+                    );
+                  }}
+                </Index>
                 <button
                   class={styles.btnSecondary}
                   style={{ "margin-top": "12px" }}
@@ -136,56 +139,59 @@ export default function Channels() {
                 }
               />
               <Show when={cfg().channels.discord?.enabled}>
-                <For
+                <Index
                   each={Object.entries(
                     cfg().channels.discord?.accounts ?? {},
                   )}
                 >
-                  {([name, acct]) => (
-                    <div
-                      style={{
-                        background: "#0d1117",
-                        border: "1px solid #30363d",
-                        "border-radius": "6px",
-                        padding: "16px",
-                        "margin-top": "12px",
-                      }}
-                    >
-                      <strong style={{ color: "#f0f6fc" }}>{name}</strong>
-                      <SecretInput
-                        label="Bot Token"
-                        value={acct.bot_token}
-                        onChange={(v) =>
-                          updateConfig((c) => {
-                            c.channels.discord!.accounts[name].bot_token = v;
-                            return c;
-                          })
-                        }
-                      />
-                      <TextInput
-                        label="Application ID"
-                        value={acct.application_id ?? ""}
-                        onChange={(v) =>
-                          updateConfig((c) => {
-                            c.channels.discord!.accounts[name].application_id =
-                              v || undefined;
-                            return c;
-                          })
-                        }
-                      />
-                      <Toggle
-                        label="Enabled"
-                        value={acct.enabled}
-                        onChange={(v) =>
-                          updateConfig((c) => {
-                            c.channels.discord!.accounts[name].enabled = v;
-                            return c;
-                          })
-                        }
-                      />
-                    </div>
-                  )}
-                </For>
+                  {(entry) => {
+                    const [name, acct] = entry();
+                    return (
+                      <div
+                        style={{
+                          background: "#0d1117",
+                          border: "1px solid #30363d",
+                          "border-radius": "6px",
+                          padding: "16px",
+                          "margin-top": "12px",
+                        }}
+                      >
+                        <strong style={{ color: "#f0f6fc" }}>{name}</strong>
+                        <SecretInput
+                          label="Bot Token"
+                          value={acct.bot_token}
+                          onChange={(v) =>
+                            updateConfig((c) => {
+                              c.channels.discord!.accounts[name].bot_token = v;
+                              return c;
+                            })
+                          }
+                        />
+                        <TextInput
+                          label="Application ID"
+                          value={acct.application_id ?? ""}
+                          onChange={(v) =>
+                            updateConfig((c) => {
+                              c.channels.discord!.accounts[name].application_id =
+                                v || undefined;
+                              return c;
+                            })
+                          }
+                        />
+                        <Toggle
+                          label="Enabled"
+                          value={acct.enabled}
+                          onChange={(v) =>
+                            updateConfig((c) => {
+                              c.channels.discord!.accounts[name].enabled = v;
+                              return c;
+                            })
+                          }
+                        />
+                      </div>
+                    );
+                  }}
+                </Index>
                 <button
                   class={styles.btnSecondary}
                   style={{ "margin-top": "12px" }}
@@ -228,56 +234,59 @@ export default function Channels() {
                 }
               />
               <Show when={cfg().channels.slack?.enabled}>
-                <For
+                <Index
                   each={Object.entries(
                     cfg().channels.slack?.accounts ?? {},
                   )}
                 >
-                  {([name, acct]) => (
-                    <div
-                      style={{
-                        background: "#0d1117",
-                        border: "1px solid #30363d",
-                        "border-radius": "6px",
-                        padding: "16px",
-                        "margin-top": "12px",
-                      }}
-                    >
-                      <strong style={{ color: "#f0f6fc" }}>{name}</strong>
-                      <SecretInput
-                        label="Bot Token"
-                        value={acct.bot_token}
-                        onChange={(v) =>
-                          updateConfig((c) => {
-                            c.channels.slack!.accounts[name].bot_token = v;
-                            return c;
-                          })
-                        }
-                      />
-                      <SecretInput
-                        label="App Token (Socket Mode)"
-                        value={acct.app_token ?? ""}
-                        onChange={(v) =>
-                          updateConfig((c) => {
-                            c.channels.slack!.accounts[name].app_token =
-                              v || undefined;
-                            return c;
-                          })
-                        }
-                      />
-                      <Toggle
-                        label="Enabled"
-                        value={acct.enabled}
-                        onChange={(v) =>
-                          updateConfig((c) => {
-                            c.channels.slack!.accounts[name].enabled = v;
-                            return c;
-                          })
-                        }
-                      />
-                    </div>
-                  )}
-                </For>
+                  {(entry) => {
+                    const [name, acct] = entry();
+                    return (
+                      <div
+                        style={{
+                          background: "#0d1117",
+                          border: "1px solid #30363d",
+                          "border-radius": "6px",
+                          padding: "16px",
+                          "margin-top": "12px",
+                        }}
+                      >
+                        <strong style={{ color: "#f0f6fc" }}>{name}</strong>
+                        <SecretInput
+                          label="Bot Token"
+                          value={acct.bot_token}
+                          onChange={(v) =>
+                            updateConfig((c) => {
+                              c.channels.slack!.accounts[name].bot_token = v;
+                              return c;
+                            })
+                          }
+                        />
+                        <SecretInput
+                          label="App Token (Socket Mode)"
+                          value={acct.app_token ?? ""}
+                          onChange={(v) =>
+                            updateConfig((c) => {
+                              c.channels.slack!.accounts[name].app_token =
+                                v || undefined;
+                              return c;
+                            })
+                          }
+                        />
+                        <Toggle
+                          label="Enabled"
+                          value={acct.enabled}
+                          onChange={(v) =>
+                            updateConfig((c) => {
+                              c.channels.slack!.accounts[name].enabled = v;
+                              return c;
+                            })
+                          }
+                        />
+                      </div>
+                    );
+                  }}
+                </Index>
                 <button
                   class={styles.btnSecondary}
                   style={{ "margin-top": "12px" }}
@@ -368,46 +377,49 @@ export default function Channels() {
                 }
               />
               <Show when={cfg().channels.whatsapp?.enabled}>
-                <For
+                <Index
                   each={Object.entries(
                     cfg().channels.whatsapp?.accounts ?? {},
                   )}
                 >
-                  {([name, acct]) => (
-                    <div
-                      style={{
-                        background: "#0d1117",
-                        border: "1px solid #30363d",
-                        "border-radius": "6px",
-                        padding: "16px",
-                        "margin-top": "12px",
-                      }}
-                    >
-                      <strong style={{ color: "#f0f6fc" }}>{name}</strong>
-                      <TextInput
-                        label="Phone Number"
-                        value={acct.phone_number}
-                        onChange={(v) =>
-                          updateConfig((c) => {
-                            c.channels.whatsapp!.accounts[name].phone_number =
-                              v;
-                            return c;
-                          })
-                        }
-                      />
-                      <Toggle
-                        label="Enabled"
-                        value={acct.enabled}
-                        onChange={(v) =>
-                          updateConfig((c) => {
-                            c.channels.whatsapp!.accounts[name].enabled = v;
-                            return c;
-                          })
-                        }
-                      />
-                    </div>
-                  )}
-                </For>
+                  {(entry) => {
+                    const [name, acct] = entry();
+                    return (
+                      <div
+                        style={{
+                          background: "#0d1117",
+                          border: "1px solid #30363d",
+                          "border-radius": "6px",
+                          padding: "16px",
+                          "margin-top": "12px",
+                        }}
+                      >
+                        <strong style={{ color: "#f0f6fc" }}>{name}</strong>
+                        <TextInput
+                          label="Phone Number"
+                          value={acct.phone_number}
+                          onChange={(v) =>
+                            updateConfig((c) => {
+                              c.channels.whatsapp!.accounts[name].phone_number =
+                                v;
+                              return c;
+                            })
+                          }
+                        />
+                        <Toggle
+                          label="Enabled"
+                          value={acct.enabled}
+                          onChange={(v) =>
+                            updateConfig((c) => {
+                              c.channels.whatsapp!.accounts[name].enabled = v;
+                              return c;
+                            })
+                          }
+                        />
+                      </div>
+                    );
+                  }}
+                </Index>
                 <button
                   class={styles.btnSecondary}
                   style={{ "margin-top": "12px" }}
