@@ -73,14 +73,14 @@ impl ComponentStatus {
 
 /// Health method handler.
 pub struct HealthHandler {
-    _context: Arc<HandlerContext>,
+    context: Arc<HandlerContext>,
     start_time: std::time::Instant,
 }
 
 impl HealthHandler {
     pub fn new(context: Arc<HandlerContext>) -> Self {
         Self {
-            _context: context,
+            context,
             start_time: std::time::Instant::now(),
         }
     }
@@ -94,8 +94,19 @@ impl MethodHandler for HealthHandler {
         // Sessions are always available (in-memory storage)
         let sessions_status = ComponentStatus::ok();
 
-        // Channels status based on active count
-        let channels_status = ComponentStatus::ok();
+        // Channels status from channel manager if available
+        let channels_status = if let Some(ref manager) = self.context.channel_manager {
+            let status = manager.status().await;
+            if status.channels_connected > 0 {
+                ComponentStatus::ok()
+            } else if status.channels_total > 0 {
+                ComponentStatus::not_configured()
+            } else {
+                ComponentStatus::ok()
+            }
+        } else {
+            ComponentStatus::ok()
+        };
 
         let response = HealthResponse {
             status: "ok".to_string(),

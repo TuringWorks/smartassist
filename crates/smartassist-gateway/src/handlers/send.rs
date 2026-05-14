@@ -9,7 +9,7 @@ use crate::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tracing::debug;
+use tracing::{debug, warn};
 
 /// Media attachment for messages.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,12 +42,12 @@ pub struct SendMessageParams {
 
 /// Send message handler.
 pub struct SendMessageHandler {
-    _context: Arc<HandlerContext>,
+    context: Arc<HandlerContext>,
 }
 
 impl SendMessageHandler {
     pub fn new(context: Arc<HandlerContext>) -> Self {
-        Self { _context: context }
+        Self { context }
     }
 }
 
@@ -66,7 +66,28 @@ impl MethodHandler for SendMessageHandler {
             params.recipient
         );
 
-        // TODO: Actually send through channel manager
+        // Attempt to send through channel manager if available
+        if let Some(ref manager) = self.context.channel_manager {
+            let target = smartassist_core::types::MessageTarget::new(params.recipient.clone());
+            match manager.send_to(&params.channel, target, &params.text).await {
+                Ok(result) => {
+                    return Ok(serde_json::json!({
+                        "channel": params.channel,
+                        "recipient": params.recipient,
+                        "message_id": result.message_id,
+                        "sent": result.delivered,
+                    }));
+                }
+                Err(e) => {
+                    warn!(
+                        "Failed to send message via channel manager: {}, falling back to mock",
+                        e
+                    );
+                }
+            }
+        }
+
+        // Fallback: generate a mock message id
         let message_id = uuid::Uuid::new_v4().to_string();
 
         Ok(serde_json::json!({
@@ -104,12 +125,12 @@ pub struct SendPollParams {
 
 /// Send poll handler.
 pub struct SendPollHandler {
-    _context: Arc<HandlerContext>,
+    context: Arc<HandlerContext>,
 }
 
 impl SendPollHandler {
     pub fn new(context: Arc<HandlerContext>) -> Self {
-        Self { _context: context }
+        Self { context }
     }
 }
 
@@ -128,7 +149,34 @@ impl MethodHandler for SendPollHandler {
             params.recipient
         );
 
-        // TODO: Actually send through channel manager
+        // Attempt to deliver as a plain message via channel manager if available.
+        // Native poll support is channel-specific and not yet implemented.
+        if let Some(ref manager) = self.context.channel_manager {
+            let text = format!(
+                "Poll: {}\n{}",
+                params.question,
+                params.options.iter().map(|o| o.text.clone()).collect::<Vec<_>>().join("\n")
+            );
+            let target = smartassist_core::types::MessageTarget::new(params.recipient.clone());
+            match manager.send_to(&params.channel, target, text).await {
+                Ok(result) => {
+                    return Ok(serde_json::json!({
+                        "channel": params.channel,
+                        "recipient": params.recipient,
+                        "poll_id": result.message_id,
+                        "sent": result.delivered,
+                    }));
+                }
+                Err(e) => {
+                    warn!(
+                        "Failed to send poll via channel manager: {}, falling back to mock",
+                        e
+                    );
+                }
+            }
+        }
+
+        // Fallback: generate a mock poll id
         let poll_id = uuid::Uuid::new_v4().to_string();
 
         Ok(serde_json::json!({

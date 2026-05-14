@@ -290,10 +290,13 @@ impl Gateway {
 
         let (talk_runtime, _talk_events) = smartassist_talk::TalkRuntimeBuilder::default().build();
 
+        let channel_manager = Arc::new(smartassist_channels::ChannelManager::new());
+
         context = context
             .with_browser_manager(browser_manager)
             .with_canvas_manager(canvas_manager)
-            .with_talk_runtime(Arc::new(talk_runtime));
+            .with_talk_runtime(Arc::new(talk_runtime))
+            .with_channel_manager(channel_manager);
 
         context
     }

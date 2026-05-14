@@ -444,6 +444,9 @@ pub struct HandlerContext {
 
     /// Talk / voice runtime.
     pub talk_runtime: Option<Arc<smartassist_talk::TalkRuntime>>,
+
+    /// Channel manager for sending/receiving messages.
+    pub channel_manager: Option<Arc<smartassist_channels::ChannelManager>>,
 }
 
 impl Default for HandlerContext {
@@ -465,6 +468,7 @@ impl Default for HandlerContext {
             browser_manager: None,
             canvas_manager: None,
             talk_runtime: None,
+            channel_manager: None,
         }
     }
 }
@@ -525,6 +529,12 @@ impl HandlerContext {
     /// Set the talk runtime.
     pub fn with_talk_runtime(mut self, runtime: Arc<smartassist_talk::TalkRuntime>) -> Self {
         self.talk_runtime = Some(runtime);
+        self
+    }
+
+    /// Set the channel manager.
+    pub fn with_channel_manager(mut self, manager: Arc<smartassist_channels::ChannelManager>) -> Self {
+        self.channel_manager = Some(manager);
         self
     }
 }
