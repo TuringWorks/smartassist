@@ -1,0 +1,58 @@
+# SmartAssist Docker Compose Stack
+# Usage:
+#   make docker-compose-up    Start all services
+#   make docker-compose-down  Stop all services
+#
+# Services:
+#   gateway     SmartAssist JSON-RPC gateway (CLI gateway subcommand)
+#   cron        Cron scheduler daemon (CLI cron subcommand)
+#   redis       (Optional) Message broker for channels
+
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["gateway"]
+    ports:
+      - "18789:18789"
+    environment:
+      - SMARTASSIST_CONFIG=/etc/smartassist/config.json
+      - RUST_LOG=info
+    volumes:
+      - ./config:/etc/smartassist:ro
+      - smartassist-data:/var/lib/smartassist
+    depends_on:
+      - redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:18789/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  cron:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["cron"]
+    environment:
+      - SMARTASSIST_GATEWAY_URL=http://gateway:18789
+      - RUST_LOG=info
+    volumes:
+      - smartassist-data:/var/lib/smartassist
+    depends_on:
+      - gateway
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+
+volumes:
+  smartassist-data:
+  redis-data:
