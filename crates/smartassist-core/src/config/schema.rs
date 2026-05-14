@@ -89,6 +89,16 @@ pub struct AgentDefaults {
     pub cache: Option<CacheConfig>,
 }
 
+impl AgentDefaults {
+    /// Extract the provider name from the default model string.
+    ///
+    /// Model IDs follow the format `provider/model-name` (e.g. `anthropic/claude-sonnet-4-6`).
+    /// Returns the provider portion, or `None` if no model is configured.
+    pub fn provider_name(&self) -> Option<&str> {
+        self.model.as_deref().and_then(|m| m.split('/').next())
+    }
+}
+
 /// Cache configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CacheConfig {

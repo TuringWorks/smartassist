@@ -77,9 +77,7 @@ pub async fn gateway_start(
     let provider = config
         .agents
         .defaults
-        .model
-        .as_deref()
-        .and_then(|m| m.split('/').next())
+        .provider_name()
         .unwrap_or("anthropic")
         .to_string();
     state.start(port, &provider).await
@@ -105,9 +103,7 @@ pub async fn gateway_restart(
     let provider = config
         .agents
         .defaults
-        .model
-        .as_deref()
-        .and_then(|m| m.split('/').next())
+        .provider_name()
         .unwrap_or("anthropic")
         .to_string();
     state.start(port, &provider).await

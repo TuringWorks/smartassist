@@ -102,9 +102,7 @@ pub fn run() {
                         let provider = config
                             .agents
                             .defaults
-                            .model
-                            .as_deref()
-                            .and_then(|m| m.split('/').next())
+                            .provider_name()
                             .unwrap_or("anthropic")
                             .to_string();
                         let gw = gw.inner().clone();
@@ -126,9 +124,7 @@ pub fn run() {
                         let provider = config
                             .agents
                             .defaults
-                            .model
-                            .as_deref()
-                            .and_then(|m| m.split('/').next())
+                            .provider_name()
                             .unwrap_or("anthropic")
                             .to_string();
                         let gw = gw.inner().clone();
