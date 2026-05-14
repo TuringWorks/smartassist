@@ -9,7 +9,7 @@ license = "MIT"
 smartassist-core = { path = "../smartassist-core" }
 
 # Async runtime
-tokio = { version = "1.35", features = ["sync"] }
+tokio = { version = "1.35", features = ["sync", "process"] }
 async-trait = "0.1"
 futures = "0.3"
 
@@ -50,4 +50,14 @@ default = []
 anthropic = []
 openai = []
 google = []
-all = ["anthropic", "openai", "google"]
+image-openai = []
+image-ollama = []
+image-fal = []
+video-openai = []
+video-dashscope = []
+music-openai = []
+tts-openai = []
+tts-elevenlabs = []
+tts-azure = []
+tts-local = []
+all = ["anthropic", "openai", "google", "image-openai", "image-ollama", "image-fal", "video-openai", "video-dashscope", "music-openai", "tts-openai", "tts-elevenlabs", "tts-azure", "tts-local"]

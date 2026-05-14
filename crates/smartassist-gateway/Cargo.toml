@@ -10,6 +10,9 @@ smartassist-core = { path = "../smartassist-core" }
 smartassist-agent = { path = "../smartassist-agent" }
 smartassist-channels = { path = "../smartassist-channels" }
 smartassist-providers = { path = "../smartassist-providers", features = ["anthropic", "openai", "google"] }
+smartassist-browser = { path = "../smartassist-browser" }
+smartassist-canvas = { path = "../smartassist-canvas" }
+smartassist-talk = { path = "../smartassist-talk" }
 
 # Async runtime
 tokio = { version = "1.35", features = ["full", "sync"] }
@@ -51,6 +54,9 @@ rand = "0.8"
 
 # System info
 hostname = "0.3"
+
+# Encoding
+base64 = "0.22"
 
 [dev-dependencies]
 tokio-test = "0.4"

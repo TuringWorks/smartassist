@@ -37,6 +37,10 @@ dirs = "5.0"
 # Dynamic library loading
 libloading = "0.8"
 
+# HTTP client for marketplace
+reqwest = { version = "0.11", default-features = false, features = ["json", "rustls-tls"] }
+urlencoding = "2.1"
+
 [dev-dependencies]
 tokio-test = "0.4"
 tempfile = "3.8"

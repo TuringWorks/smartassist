@@ -4,6 +4,7 @@ pub mod commands;
 pub mod onboard;
 pub mod render;
 pub mod repl;
+pub mod tui;
 pub mod wizard;
 
 use clap::{Parser, Subcommand};
@@ -49,6 +50,9 @@ pub enum Commands {
     /// Manage plugins
     Plugins(commands::plugins::PluginsArgs),
 
+    /// Start the terminal UI chat
+    Tui(commands::tui::TuiArgs),
+
     /// Initialize SmartAssist configuration (interactive wizard)
     Init {
         /// Overwrite existing configuration
@@ -74,6 +78,7 @@ pub async fn run(cli: Cli) -> anyhow::Result<()> {
         Commands::Doctor(args) => commands::doctor::run(args).await,
         Commands::Secrets(args) => commands::secrets::run(args).await,
         Commands::Plugins(args) => commands::plugins::run(args).await,
+        Commands::Tui(args) => commands::tui::run(args).await,
         Commands::Init { force, quick } => {
             wizard::SetupWizard::new(force, quick).run().await
         }
@@ -223,6 +228,28 @@ mod tests {
                 assert!(force);
             }
             _ => panic!("Expected Init command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_tui() {
+        let cli = Cli::try_parse_from(["smartassist", "tui", "--agent", "mybot"]).unwrap();
+        match cli.command {
+            Commands::Tui(args) => {
+                assert_eq!(args.agent, Some("mybot".to_string()));
+            }
+            _ => panic!("Expected Tui command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_tui_default() {
+        let cli = Cli::try_parse_from(["smartassist", "tui"]).unwrap();
+        match cli.command {
+            Commands::Tui(args) => {
+                assert!(args.agent.is_none());
+            }
+            _ => panic!("Expected Tui command"),
         }
     }
 }

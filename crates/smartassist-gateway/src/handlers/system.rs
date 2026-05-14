@@ -50,10 +50,11 @@ impl MethodHandler for SystemPresenceHandler {
     async fn call(&self, _params: Option<serde_json::Value>) -> Result<serde_json::Value> {
         debug!("System presence request");
 
-        let _active_channels = self
+        let active_channels = self
             .context
             .active_channels
             .load(std::sync::atomic::Ordering::Relaxed);
+        let active_sessions = self.context.sessions.read().await.len();
 
         let presence = SystemPresence {
             version: env!("CARGO_PKG_VERSION").to_string(),
@@ -62,8 +63,8 @@ impl MethodHandler for SystemPresenceHandler {
             hostname: hostname::get()
                 .map(|h| h.to_string_lossy().to_string())
                 .unwrap_or_else(|_| "unknown".to_string()),
-            channels: vec![], // TODO: Get from channel manager
-            devices: vec![],  // TODO: Get from device manager
+            channels: vec![format!("active: {}", active_channels)],
+            devices: vec![format!("sessions: {}", active_sessions)],
             uptime_seconds: self.start_time.elapsed().as_secs(),
         };
 

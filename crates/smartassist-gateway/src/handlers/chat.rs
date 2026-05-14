@@ -223,12 +223,12 @@ pub struct ChatAbortParams {
 
 /// Chat abort method handler.
 pub struct ChatAbortHandler {
-    _context: Arc<HandlerContext>,
+    context: Arc<HandlerContext>,
 }
 
 impl ChatAbortHandler {
     pub fn new(context: Arc<HandlerContext>) -> Self {
-        Self { _context: context }
+        Self { context }
     }
 }
 
@@ -242,12 +242,18 @@ impl MethodHandler for ChatAbortHandler {
 
         debug!("Chat abort request for session: {}", params.session_key);
 
-        // TODO: Actually abort the running agent
-        // For now, just acknowledge the request
+        let mut sessions = self.context.sessions.write().await;
+        let aborted = if let Some(session) = sessions.get_mut(&params.session_key) {
+            session.status = "aborted".to_string();
+            session.last_activity = Some(chrono::Utc::now());
+            true
+        } else {
+            false
+        };
 
         Ok(serde_json::json!({
             "session_key": params.session_key,
-            "aborted": true,
+            "aborted": aborted,
         }))
     }
 }
@@ -290,5 +296,41 @@ mod tests {
         let params: ChatParams = serde_json::from_value(json).unwrap();
         assert_eq!(params.message, "Hello, world!");
         assert_eq!(params.session_key, Some("test-session".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_chat_abort_existing_session() {
+        let ctx = Arc::new(HandlerContext::new());
+
+        // Create a session
+        {
+            let mut sessions = ctx.sessions.write().await;
+            sessions.insert("sess-1".to_string(), super::SessionData {
+                key: "sess-1".to_string(),
+                agent_id: None,
+                status: "active".to_string(),
+                messages: vec![],
+                created_at: chrono::Utc::now(),
+                last_activity: None,
+            });
+        }
+
+        let handler = ChatAbortHandler::new(ctx.clone());
+        let params = serde_json::json!({"session_key": "sess-1"});
+        let result = handler.call(Some(params)).await.unwrap();
+        assert_eq!(result["aborted"], true);
+
+        // Verify session status changed
+        let sessions = ctx.sessions.read().await;
+        assert_eq!(sessions.get("sess-1").unwrap().status, "aborted");
+    }
+
+    #[tokio::test]
+    async fn test_chat_abort_missing_session() {
+        let ctx = Arc::new(HandlerContext::new());
+        let handler = ChatAbortHandler::new(ctx);
+        let params = serde_json::json!({"session_key": "missing"});
+        let result = handler.call(Some(params)).await.unwrap();
+        assert_eq!(result["aborted"], false);
     }
 }

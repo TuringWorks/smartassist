@@ -32,12 +32,12 @@ pub struct SkillInfo {
 
 /// Skills status handler.
 pub struct SkillsStatusHandler {
-    _context: Arc<HandlerContext>,
+    context: Arc<HandlerContext>,
 }
 
 impl SkillsStatusHandler {
     pub fn new(context: Arc<HandlerContext>) -> Self {
-        Self { _context: context }
+        Self { context }
     }
 }
 
@@ -46,31 +46,23 @@ impl MethodHandler for SkillsStatusHandler {
     async fn call(&self, _params: Option<serde_json::Value>) -> Result<serde_json::Value> {
         debug!("Skills status request");
 
-        // TODO: Get actual skills from plugin manager
-        let skills: Vec<SkillInfo> = vec![
-            SkillInfo {
-                id: "commit".to_string(),
-                name: "Git Commit".to_string(),
-                version: "1.0.0".to_string(),
-                description: Some("Create git commits with AI-generated messages".to_string()),
-                enabled: true,
-                builtin: true,
-                path: None,
-            },
-            SkillInfo {
-                id: "review-pr".to_string(),
-                name: "PR Review".to_string(),
-                version: "1.0.0".to_string(),
-                description: Some("Review pull requests".to_string()),
-                enabled: true,
-                builtin: true,
-                path: None,
-            },
-        ];
+        let skills = self.context.skills.read().await;
+        let result: Vec<SkillInfo> = skills
+            .values()
+            .map(|s| SkillInfo {
+                id: s.id.clone(),
+                name: s.name.clone(),
+                version: s.version.clone(),
+                description: s.description.clone(),
+                enabled: s.enabled,
+                builtin: s.builtin,
+                path: s.path.clone(),
+            })
+            .collect();
 
         Ok(serde_json::json!({
-            "skills": skills,
-            "count": skills.len(),
+            "skills": result,
+            "count": result.len(),
         }))
     }
 }
@@ -109,12 +101,12 @@ pub struct SkillsInstallParams {
 
 /// Skills install handler.
 pub struct SkillsInstallHandler {
-    _context: Arc<HandlerContext>,
+    context: Arc<HandlerContext>,
 }
 
 impl SkillsInstallHandler {
     pub fn new(context: Arc<HandlerContext>) -> Self {
-        Self { _context: context }
+        Self { context }
     }
 }
 
@@ -128,11 +120,22 @@ impl MethodHandler for SkillsInstallHandler {
 
         debug!("Skills install: {}", params.package);
 
-        // TODO: Actually install the skill
+        let mut skills = self.context.skills.write().await;
+        skills.insert(
+            params.package.clone(),
+            super::SkillData {
+                id: params.package.clone(),
+                name: params.package.clone(),
+                version: params.version.unwrap_or_else(|| "1.0.0".to_string()),
+                description: None,
+                enabled: true,
+                builtin: false,
+                path: None,
+            },
+        );
 
         Ok(serde_json::json!({
             "package": params.package,
-            "version": params.version,
             "installed": true,
         }))
     }
@@ -149,12 +152,12 @@ pub struct SkillsUpdateParams {
 
 /// Skills update handler.
 pub struct SkillsUpdateHandler {
-    _context: Arc<HandlerContext>,
+    context: Arc<HandlerContext>,
 }
 
 impl SkillsUpdateHandler {
     pub fn new(context: Arc<HandlerContext>) -> Self {
-        Self { _context: context }
+        Self { context }
     }
 }
 
@@ -168,12 +171,19 @@ impl MethodHandler for SkillsUpdateHandler {
 
         debug!("Skills update: {}", params.id);
 
-        // TODO: Actually update the skill
+        let mut skills = self.context.skills.write().await;
+        let updated = if let Some(skill) = skills.get_mut(&params.id) {
+            if let Some(version) = params.version {
+                skill.version = version;
+            }
+            true
+        } else {
+            false
+        };
 
         Ok(serde_json::json!({
             "id": params.id,
-            "version": params.version,
-            "updated": true,
+            "updated": updated,
         }))
     }
 }
@@ -213,5 +223,64 @@ mod tests {
         let json = serde_json::to_value(&skill).unwrap();
         assert_eq!(json["id"], "test-skill");
         assert_eq!(json["enabled"], true);
+    }
+
+    #[tokio::test]
+    async fn test_skills_status_empty() {
+        let ctx = Arc::new(HandlerContext::new());
+        let handler = SkillsStatusHandler::new(ctx);
+        let result = handler.call(None).await.unwrap();
+        assert_eq!(result["count"], 0);
+    }
+
+    #[tokio::test]
+    async fn test_skills_install_and_status() {
+        let ctx = Arc::new(HandlerContext::new());
+
+        let install = SkillsInstallHandler::new(ctx.clone());
+        let params = serde_json::json!({
+            "package": "test-skill",
+            "version": "2.0.0"
+        });
+        let result = install.call(Some(params)).await.unwrap();
+        assert_eq!(result["installed"], true);
+
+        let status = SkillsStatusHandler::new(ctx);
+        let result = status.call(None).await.unwrap();
+        assert_eq!(result["count"], 1);
+        let skills = result["skills"].as_array().unwrap();
+        assert_eq!(skills[0]["id"], "test-skill");
+        assert_eq!(skills[0]["version"], "2.0.0");
+    }
+
+    #[tokio::test]
+    async fn test_skills_update_existing() {
+        let ctx = Arc::new(HandlerContext::new());
+
+        // Install first
+        let install = SkillsInstallHandler::new(ctx.clone());
+        let params = serde_json::json!({"package": "skill-a"});
+        install.call(Some(params)).await.unwrap();
+
+        // Update
+        let update = SkillsUpdateHandler::new(ctx);
+        let params = serde_json::json!({
+            "id": "skill-a",
+            "version": "3.0.0"
+        });
+        let result = update.call(Some(params)).await.unwrap();
+        assert_eq!(result["updated"], true);
+    }
+
+    #[tokio::test]
+    async fn test_skills_update_missing() {
+        let ctx = Arc::new(HandlerContext::new());
+        let update = SkillsUpdateHandler::new(ctx);
+        let params = serde_json::json!({
+            "id": "missing",
+            "version": "1.0.0"
+        });
+        let result = update.call(Some(params)).await.unwrap();
+        assert_eq!(result["updated"], false);
     }
 }

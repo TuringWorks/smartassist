@@ -63,7 +63,7 @@ pub use http::{HttpRequestTool, UrlBuildTool, UrlParseTool};
 pub use json::{JsonQueryTool, JsonTransformTool, YamlTool};
 pub use lsp::LspTool;
 pub use math::{CalcTool, RandomTool, UuidTool};
-pub use media::{ImageTool, TtsTool};
+pub use media::{ImageGenerateTool, ImageTool, MusicGenerateTool, TtsTool, VideoGenerateTool};
 pub use memory::{MemoryGetTool, MemoryIndexTool, MemorySearchTool, MemoryStoreTool};
 pub use messaging::{
     MessageTool, SessionStatusTool, SessionsHistoryTool, SessionsListTool, SessionsSendTool,
@@ -278,6 +278,12 @@ impl ToolRegistry {
         // Media tools
         registry.register(Arc::new(ImageTool::new())).await;
         registry.register(Arc::new(TtsTool::new())).await;
+        let image_registry = Arc::new(smartassist_providers::media::ImageProviderRegistry::new());
+        registry.register(Arc::new(ImageGenerateTool::new(image_registry))).await;
+        let video_registry = Arc::new(smartassist_providers::media::VideoProviderRegistry::new());
+        registry.register(Arc::new(VideoGenerateTool::new(video_registry))).await;
+        let music_registry = Arc::new(smartassist_providers::media::MusicProviderRegistry::new());
+        registry.register(Arc::new(MusicGenerateTool::new(music_registry))).await;
 
         // Browser tools
         registry.register(Arc::new(BrowserTool::new())).await;
@@ -669,6 +675,9 @@ mod tests {
         // Check media tools
         assert!(tools.contains(&"image".to_string()));
         assert!(tools.contains(&"tts".to_string()));
+        assert!(tools.contains(&"image_generate".to_string()));
+        assert!(tools.contains(&"video_generate".to_string()));
+        assert!(tools.contains(&"music_generate".to_string()));
 
         // Check browser tools
         assert!(tools.contains(&"browser".to_string()));
@@ -806,7 +815,7 @@ mod tests {
         assert!(tools.contains(&"match".to_string()));
         assert!(tools.contains(&"version_compare".to_string()));
 
-        // Total: 101 tools
-        assert_eq!(tools.len(), 101);
+        // Total: 104 tools
+        assert_eq!(tools.len(), 104);
     }
 }

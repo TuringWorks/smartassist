@@ -12,6 +12,7 @@ pub mod session;
 pub mod tools;
 pub mod providers;
 pub mod approval;
+pub mod tasks;
 
 pub use error::AgentError;
 pub use runtime::{AgentRuntime, RuntimeConfig};

@@ -7,3 +7,4 @@ pub mod config;
 pub mod doctor;
 pub mod plugins;
 pub mod secrets;
+pub mod tui;

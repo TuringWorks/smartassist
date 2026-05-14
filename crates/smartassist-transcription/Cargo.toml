@@ -1,0 +1,45 @@
+[package]
+name = "smartassist-transcription"
+version = "0.1.0"
+edition = "2021"
+description = "Realtime speech-to-text transcription for SmartAssist"
+license = "MIT"
+
+[dependencies]
+smartassist-core = { path = "../smartassist-core" }
+smartassist-providers = { path = "../smartassist-providers" }
+
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+async-trait = "0.1"
+futures = "0.3"
+
+# WebSocket support
+tokio-tungstenite = { version = "0.21", features = ["rustls-tls-webpki-roots"] }
+
+# HTTP client
+reqwest = { version = "0.11", default-features = false, features = ["json", "stream", "rustls-tls", "multipart"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Logging
+tracing = "0.1"
+
+# Utilities
+uuid = { version = "1.6", features = ["v4"] }
+bytes = "1.5"
+
+[dev-dependencies]
+tokio = { version = "1.35", features = ["rt-multi-thread", "macros"] }
+
+[features]
+default = []
+whisper = []
+deepgram = []
+all = ["whisper", "deepgram"]

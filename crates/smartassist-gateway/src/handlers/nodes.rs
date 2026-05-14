@@ -2,7 +2,7 @@
 //!
 //! Handles pairing, management, and communication with paired devices/nodes.
 
-use super::HandlerContext;
+use super::{HandlerContext, NodeData};
 use crate::error::GatewayError;
 use crate::methods::MethodHandler;
 use crate::Result;
@@ -39,12 +39,12 @@ pub struct NodeListParams {
 
 /// Node list method handler.
 pub struct NodeListHandler {
-    _context: Arc<HandlerContext>,
+    context: Arc<HandlerContext>,
 }
 
 impl NodeListHandler {
     pub fn new(context: Arc<HandlerContext>) -> Self {
-        Self { _context: context }
+        Self { context }
     }
 }
 
@@ -57,12 +57,36 @@ impl MethodHandler for NodeListHandler {
 
         debug!("Node list request: online={:?}", params.online);
 
-        // TODO: Get nodes from node manager
-        let nodes: Vec<NodeInfo> = vec![];
+        let nodes = self.context.nodes.read().await;
+        let mut result: Vec<NodeInfo> = nodes
+            .values()
+            .filter(|n| {
+                if let Some(online) = params.online {
+                    if n.online != online {
+                        return false;
+                    }
+                }
+                if let Some(ref node_type) = params.node_type {
+                    if &n.node_type != node_type {
+                        return false;
+                    }
+                }
+                true
+            })
+            .map(|n| NodeInfo {
+                id: n.id.clone(),
+                name: n.name.clone(),
+                node_type: n.node_type.clone(),
+                paired: n.paired,
+                online: n.online,
+                last_seen: n.last_seen.map(|t| t.to_rfc3339()),
+            })
+            .collect();
+        result.sort_by(|a, b| a.id.cmp(&b.id));
 
         Ok(serde_json::json!({
-            "nodes": nodes,
-            "count": nodes.len(),
+            "nodes": result,
+            "count": result.len(),
         }))
     }
 }
@@ -76,12 +100,12 @@ pub struct NodeDescribeParams {
 
 /// Node describe method handler.
 pub struct NodeDescribeHandler {
-    _context: Arc<HandlerContext>,
+    context: Arc<HandlerContext>,
 }
 
 impl NodeDescribeHandler {
     pub fn new(context: Arc<HandlerContext>) -> Self {
-        Self { _context: context }
+        Self { context }
     }
 }
 
@@ -95,11 +119,21 @@ impl MethodHandler for NodeDescribeHandler {
 
         debug!("Node describe request for: {}", params.node_id);
 
-        // TODO: Get node from node manager
-        Err(GatewayError::NotFound(format!(
-            "Node '{}' not found",
-            params.node_id
-        )))
+        let nodes = self.context.nodes.read().await;
+        let node = nodes.get(&params.node_id).ok_or_else(|| {
+            GatewayError::NotFound(format!("Node '{}' not found", params.node_id))
+        })?;
+
+        let info = NodeInfo {
+            id: node.id.clone(),
+            name: node.name.clone(),
+            node_type: node.node_type.clone(),
+            paired: node.paired,
+            online: node.online,
+            last_seen: node.last_seen.map(|t| t.to_rfc3339()),
+        };
+
+        Ok(serde_json::to_value(info).unwrap())
     }
 }
 
@@ -156,12 +190,12 @@ pub struct NodePairApproveParams {
 
 /// Node pair approve method handler.
 pub struct NodePairApproveHandler {
-    _context: Arc<HandlerContext>,
+    context: Arc<HandlerContext>,
 }
 
 impl NodePairApproveHandler {
     pub fn new(context: Arc<HandlerContext>) -> Self {
-        Self { _context: context }
+        Self { context }
     }
 }
 
@@ -178,7 +212,18 @@ impl MethodHandler for NodePairApproveHandler {
             params.node_id, params.pairing_code
         );
 
-        // TODO: Validate code and complete pairing
+        let mut nodes = self.context.nodes.write().await;
+        nodes.insert(
+            params.node_id.clone(),
+            NodeData {
+                id: params.node_id.clone(),
+                name: params.node_id.clone(),
+                node_type: "unknown".to_string(),
+                paired: true,
+                online: true,
+                last_seen: Some(chrono::Utc::now()),
+            },
+        );
 
         Ok(serde_json::json!({
             "node_id": params.node_id,
@@ -231,12 +276,12 @@ pub struct NodeUnpairParams {
 
 /// Node unpair method handler.
 pub struct NodeUnpairHandler {
-    _context: Arc<HandlerContext>,
+    context: Arc<HandlerContext>,
 }
 
 impl NodeUnpairHandler {
     pub fn new(context: Arc<HandlerContext>) -> Self {
-        Self { _context: context }
+        Self { context }
     }
 }
 
@@ -250,9 +295,12 @@ impl MethodHandler for NodeUnpairHandler {
 
         debug!("Node unpair for: {}", params.node_id);
 
+        let mut nodes = self.context.nodes.write().await;
+        let removed = nodes.remove(&params.node_id).is_some();
+
         Ok(serde_json::json!({
             "node_id": params.node_id,
-            "unpaired": true,
+            "unpaired": removed,
         }))
     }
 }
@@ -268,12 +316,12 @@ pub struct NodeRenameParams {
 
 /// Node rename method handler.
 pub struct NodeRenameHandler {
-    _context: Arc<HandlerContext>,
+    context: Arc<HandlerContext>,
 }
 
 impl NodeRenameHandler {
     pub fn new(context: Arc<HandlerContext>) -> Self {
-        Self { _context: context }
+        Self { context }
     }
 }
 
@@ -287,10 +335,18 @@ impl MethodHandler for NodeRenameHandler {
 
         debug!("Node rename for {}: {}", params.node_id, params.name);
 
+        let mut nodes = self.context.nodes.write().await;
+        let renamed = if let Some(node) = nodes.get_mut(&params.node_id) {
+            node.name = params.name.clone();
+            true
+        } else {
+            false
+        };
+
         Ok(serde_json::json!({
             "node_id": params.node_id,
             "name": params.name,
-            "renamed": true,
+            "renamed": renamed,
         }))
     }
 }
@@ -400,6 +456,7 @@ impl TryFrom<serde_json::Value> for NodeInvokeParams {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::handlers::NodeData;
 
     #[test]
     fn test_node_info_serialization() {
@@ -415,5 +472,128 @@ mod tests {
         let json = serde_json::to_value(&node).unwrap();
         assert_eq!(json["id"], "node-1");
         assert_eq!(json["paired"], true);
+    }
+
+    #[tokio::test]
+    async fn test_node_list_empty() {
+        let ctx = Arc::new(HandlerContext::new());
+        let handler = NodeListHandler::new(ctx);
+        let result = handler.call(None).await.unwrap();
+        assert_eq!(result["count"], 0);
+    }
+
+    #[tokio::test]
+    async fn test_node_approve_and_list() {
+        let ctx = Arc::new(HandlerContext::new());
+
+        // Approve a node
+        let approve = NodePairApproveHandler::new(ctx.clone());
+        let params = serde_json::json!({
+            "node_id": "node-1",
+            "pairing_code": "123456"
+        });
+        let result = approve.call(Some(params)).await.unwrap();
+        assert_eq!(result["paired"], true);
+
+        // List should now contain the node
+        let list = NodeListHandler::new(ctx.clone());
+        let result = list.call(None).await.unwrap();
+        assert_eq!(result["count"], 1);
+        let nodes = result["nodes"].as_array().unwrap();
+        assert_eq!(nodes[0]["id"], "node-1");
+        assert_eq!(nodes[0]["paired"], true);
+    }
+
+    #[tokio::test]
+    async fn test_node_describe_found() {
+        let ctx = Arc::new(HandlerContext::new());
+
+        // Insert a node directly
+        {
+            let mut nodes = ctx.nodes.write().await;
+            nodes.insert("node-a".to_string(), NodeData {
+                id: "node-a".to_string(),
+                name: "Alpha".to_string(),
+                node_type: "desktop".to_string(),
+                paired: true,
+                online: true,
+                last_seen: Some(chrono::Utc::now()),
+            });
+        }
+
+        let handler = NodeDescribeHandler::new(ctx);
+        let params = serde_json::json!({"node_id": "node-a"});
+        let result = handler.call(Some(params)).await.unwrap();
+        assert_eq!(result["id"], "node-a");
+        assert_eq!(result["name"], "Alpha");
+    }
+
+    #[tokio::test]
+    async fn test_node_describe_not_found() {
+        let ctx = Arc::new(HandlerContext::new());
+        let handler = NodeDescribeHandler::new(ctx);
+        let params = serde_json::json!({"node_id": "missing"});
+        let result = handler.call(Some(params)).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_node_rename() {
+        let ctx = Arc::new(HandlerContext::new());
+
+        // Insert a node
+        {
+            let mut nodes = ctx.nodes.write().await;
+            nodes.insert("node-b".to_string(), NodeData {
+                id: "node-b".to_string(),
+                name: "Old Name".to_string(),
+                node_type: "mobile".to_string(),
+                paired: true,
+                online: false,
+                last_seen: None,
+            });
+        }
+
+        let handler = NodeRenameHandler::new(ctx.clone());
+        let params = serde_json::json!({
+            "node_id": "node-b",
+            "name": "New Name"
+        });
+        let result = handler.call(Some(params)).await.unwrap();
+        assert_eq!(result["renamed"], true);
+
+        // Verify via describe
+        let describe = NodeDescribeHandler::new(ctx);
+        let params = serde_json::json!({"node_id": "node-b"});
+        let result = describe.call(Some(params)).await.unwrap();
+        assert_eq!(result["name"], "New Name");
+    }
+
+    #[tokio::test]
+    async fn test_node_unpair() {
+        let ctx = Arc::new(HandlerContext::new());
+
+        // Insert a node
+        {
+            let mut nodes = ctx.nodes.write().await;
+            nodes.insert("node-c".to_string(), NodeData {
+                id: "node-c".to_string(),
+                name: "Charlie".to_string(),
+                node_type: "server".to_string(),
+                paired: true,
+                online: true,
+                last_seen: Some(chrono::Utc::now()),
+            });
+        }
+
+        let handler = NodeUnpairHandler::new(ctx.clone());
+        let params = serde_json::json!({"node_id": "node-c"});
+        let result = handler.call(Some(params)).await.unwrap();
+        assert_eq!(result["unpaired"], true);
+
+        // List should now be empty
+        let list = NodeListHandler::new(ctx);
+        let result = list.call(None).await.unwrap();
+        assert_eq!(result["count"], 0);
     }
 }

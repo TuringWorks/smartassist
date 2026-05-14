@@ -37,6 +37,38 @@ pub mod openai;
 #[cfg(feature = "google")]
 pub mod google;
 
+#[cfg(feature = "image-openai")]
+pub mod image_openai;
+
+#[cfg(feature = "image-ollama")]
+pub mod image_ollama;
+
+#[cfg(feature = "image-fal")]
+pub mod image_fal;
+
+#[cfg(feature = "video-openai")]
+pub mod video_openai;
+
+#[cfg(feature = "video-dashscope")]
+pub mod video_dashscope;
+
+#[cfg(feature = "music-openai")]
+pub mod music_openai;
+
+#[cfg(feature = "tts-openai")]
+pub mod tts_openai;
+
+#[cfg(feature = "tts-elevenlabs")]
+pub mod tts_elevenlabs;
+
+#[cfg(feature = "tts-azure")]
+pub mod tts_azure;
+
+#[cfg(feature = "tts-local")]
+pub mod tts_local;
+
+pub mod media;
+
 pub use error::{ProviderError, Result};
 pub use types::*;
 

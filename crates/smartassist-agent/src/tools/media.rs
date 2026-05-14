@@ -1,6 +1,9 @@
 //! Media tools.
 //!
 //! - [`ImageTool`] - Analyze images with vision models
+//! - [`ImageGenerateTool`] - Generate images from text prompts
+//! - [`VideoGenerateTool`] - Generate videos from text prompts
+//! - [`MusicGenerateTool`] - Generate music from text prompts
 //! - [`TtsTool`] - Text to speech conversion
 
 use super::{Tool, ToolContext};
@@ -116,11 +119,9 @@ impl Tool for ImageTool {
             action, path, url
         );
 
-        // Determine the image source description for the result.
         let source: String;
 
         if let Some(p) = path {
-            // Read image file bytes and base64-encode them.
             let file_path = Path::new(p);
             let bytes = tokio::fs::read(file_path).await.map_err(|e| {
                 AgentError::tool_execution(format!("Failed to read image file '{}': {}", p, e))
@@ -129,16 +130,13 @@ impl Tool for ImageTool {
             let _media_type = media_type_from_extension(file_path);
             source = p.to_string();
         } else if let Some(u) = url {
-            // URL-based source; the actual URL would be passed to the vision provider.
             source = u.to_string();
         } else {
-            // Unreachable due to the earlier check, but handle defensively.
             return Err(AgentError::tool_execution(
                 "Either 'path' or 'url' must be provided",
             ));
         }
 
-        // Build the prompt based on the requested action.
         let prompt = match action {
             "describe" => "Describe this image in detail.".to_string(),
             "ocr" => "Extract all visible text from this image. Return only the extracted text, preserving layout where possible.".to_string(),
@@ -157,10 +155,7 @@ impl Tool for ImageTool {
             }
         };
 
-        // Dispatch to the vision provider if one is configured.
         let result = if self.provider.is_some() {
-            // Provider is available -- build a structured result indicating the
-            // vision call would be routed through the configured provider.
             serde_json::json!({
                 "action": action,
                 "source": source,
@@ -168,7 +163,6 @@ impl Tool for ImageTool {
                 "provider_available": true
             })
         } else {
-            // No provider configured -- return a helpful configuration hint.
             serde_json::json!({
                 "action": action,
                 "source": source,
@@ -176,6 +170,421 @@ impl Tool for ImageTool {
                 "provider_configured": false
             })
         };
+
+        let duration = start.elapsed();
+        Ok(ToolResult::success(tool_use_id, result).with_duration(duration))
+    }
+
+    fn group(&self) -> ToolGroup {
+        ToolGroup::Custom
+    }
+}
+
+/// Image generation tool - Generate images from text prompts.
+pub struct ImageGenerateTool {
+    registry: Arc<smartassist_providers::media::ImageProviderRegistry>,
+}
+
+impl ImageGenerateTool {
+    /// Create a new image generation tool.
+    pub fn new(registry: Arc<smartassist_providers::media::ImageProviderRegistry>) -> Self {
+        Self { registry }
+    }
+}
+
+#[async_trait]
+impl Tool for ImageGenerateTool {
+    fn name(&self) -> &str {
+        "image_generate"
+    }
+
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition {
+            name: "image_generate".to_string(),
+            description: "Generate images from text descriptions using AI models. Supports DALL-E, FLUX, and local models.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "prompt": {
+                        "type": "string",
+                        "description": "Text description of the image to generate"
+                    },
+                    "provider": {
+                        "type": "string",
+                        "enum": ["openai_image", "fal_image", "ollama_image"],
+                        "description": "Provider to use (defaults to first available)"
+                    },
+                    "model": {
+                        "type": "string",
+                        "description": "Model ID (e.g. dall-e-3, fal-ai/flux/dev)"
+                    },
+                    "size": {
+                        "type": "string",
+                        "enum": ["256x256", "512x512", "1024x1024", "1024x1792", "1792x1024"],
+                        "description": "Image size"
+                    },
+                    "n": {
+                        "type": "integer",
+                        "description": "Number of images to generate (1-10)"
+                    },
+                    "quality": {
+                        "type": "string",
+                        "enum": ["standard", "hd"],
+                        "description": "Image quality"
+                    },
+                    "style": {
+                        "type": "string",
+                        "enum": ["vivid", "natural"],
+                        "description": "Image style"
+                    }
+                },
+                "required": ["prompt"]
+            }),
+            execution: ToolExecutionConfig::default(),
+        }
+    }
+
+    async fn execute(
+        &self,
+        tool_use_id: &str,
+        args: serde_json::Value,
+        _context: &ToolContext,
+    ) -> Result<ToolResult> {
+        let start = Instant::now();
+
+        let prompt = args
+            .get("prompt")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| AgentError::tool_execution("Missing 'prompt' argument"))?;
+
+        let provider_name = args.get("provider").and_then(|v| v.as_str());
+        let model = args.get("model").and_then(|v| v.as_str());
+        let size = args.get("size").and_then(|v| v.as_str());
+        let n = args.get("n").and_then(|v| v.as_u64()).map(|n| n as usize);
+        let quality = args.get("quality").and_then(|v| v.as_str());
+        let style = args.get("style").and_then(|v| v.as_str());
+
+        let providers = self.registry.list().await;
+        if providers.is_empty() {
+            return Ok(ToolResult::success(tool_use_id, serde_json::json!({
+                "generated": false,
+                "message": "No image generation providers configured. Set OPENAI_API_KEY or FAL_API_KEY."
+            })).with_duration(start.elapsed()));
+        }
+
+        let provider_name = provider_name
+            .or_else(|| providers.first().map(|s| s.as_str()))
+            .unwrap_or("openai_image");
+
+        let provider = match self.registry.get(provider_name).await {
+            Some(p) => p,
+            None => {
+                return Err(AgentError::tool_execution(format!(
+                    "Provider '{}' not found. Available: {}",
+                    provider_name,
+                    providers.join(", ")
+                )));
+            }
+        };
+
+        let request = smartassist_providers::media::ImageGenerationRequest {
+            prompt: prompt.to_string(),
+            size: size.map(|s| s.to_string()),
+            n,
+            quality: quality.map(|s| s.to_string()),
+            style: style.map(|s| s.to_string()),
+            model: model.map(|s| s.to_string()),
+            ..Default::default()
+        };
+
+        let media = provider.generate(request).await.map_err(|e| {
+            AgentError::tool_execution(format!("Image generation failed: {}", e))
+        })?;
+
+        let urls: Vec<String> = media
+            .iter()
+            .filter_map(|m| m.url.clone())
+            .collect();
+        let paths: Vec<String> = media
+            .iter()
+            .filter_map(|m| m.path.clone())
+            .collect();
+
+        let result = serde_json::json!({
+            "generated": !media.is_empty(),
+            "count": media.len(),
+            "urls": urls,
+            "paths": paths,
+            "provider": provider_name,
+        });
+
+        let duration = start.elapsed();
+        Ok(ToolResult::success(tool_use_id, result).with_duration(duration))
+    }
+
+    fn group(&self) -> ToolGroup {
+        ToolGroup::Custom
+    }
+}
+
+/// Video generation tool - Generate videos from text prompts.
+pub struct VideoGenerateTool {
+    registry: Arc<smartassist_providers::media::VideoProviderRegistry>,
+}
+
+impl VideoGenerateTool {
+    /// Create a new video generation tool.
+    pub fn new(registry: Arc<smartassist_providers::media::VideoProviderRegistry>) -> Self {
+        Self { registry }
+    }
+}
+
+#[async_trait]
+impl Tool for VideoGenerateTool {
+    fn name(&self) -> &str {
+        "video_generate"
+    }
+
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition {
+            name: "video_generate".to_string(),
+            description: "Generate videos from text descriptions using AI models. Supports Sora and DashScope.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "prompt": {
+                        "type": "string",
+                        "description": "Text description of the video to generate"
+                    },
+                    "provider": {
+                        "type": "string",
+                        "enum": ["openai_video", "dashscope_video"],
+                        "description": "Provider to use"
+                    },
+                    "model": {
+                        "type": "string",
+                        "description": "Model ID"
+                    },
+                    "duration": {
+                        "type": "integer",
+                        "description": "Duration in seconds"
+                    },
+                    "resolution": {
+                        "type": "string",
+                        "enum": ["360p", "480p", "720p", "1080p"],
+                        "description": "Video resolution"
+                    },
+                    "aspect_ratio": {
+                        "type": "string",
+                        "enum": ["16:9", "9:16", "1:1", "4:3"],
+                        "description": "Aspect ratio"
+                    }
+                },
+                "required": ["prompt"]
+            }),
+            execution: ToolExecutionConfig::default(),
+        }
+    }
+
+    async fn execute(
+        &self,
+        tool_use_id: &str,
+        args: serde_json::Value,
+        _context: &ToolContext,
+    ) -> Result<ToolResult> {
+        let start = Instant::now();
+
+        let prompt = args
+            .get("prompt")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| AgentError::tool_execution("Missing 'prompt' argument"))?;
+
+        let provider_name = args.get("provider").and_then(|v| v.as_str());
+        let model = args.get("model").and_then(|v| v.as_str());
+        let duration = args.get("duration").and_then(|v| v.as_u64()).map(|d| d as u32);
+        let resolution = args.get("resolution").and_then(|v| v.as_str());
+        let aspect_ratio = args.get("aspect_ratio").and_then(|v| v.as_str());
+
+        let providers = self.registry.list().await;
+        if providers.is_empty() {
+            return Ok(ToolResult::success(tool_use_id, serde_json::json!({
+                "generated": false,
+                "message": "No video generation providers configured."
+            })).with_duration(start.elapsed()));
+        }
+
+        let provider_name = provider_name
+            .or_else(|| providers.first().map(|s| s.as_str()))
+            .unwrap_or("openai_video");
+
+        let provider = match self.registry.get(provider_name).await {
+            Some(p) => p,
+            None => {
+                return Err(AgentError::tool_execution(format!(
+                    "Provider '{}' not found. Available: {}",
+                    provider_name,
+                    providers.join(", ")
+                )));
+            }
+        };
+
+        let request = smartassist_providers::media::VideoGenerationRequest {
+            prompt: prompt.to_string(),
+            duration_seconds: duration,
+            resolution: resolution.map(|s| s.to_string()),
+            aspect_ratio: aspect_ratio.map(|s| s.to_string()),
+            model: model.map(|s| s.to_string()),
+            ..Default::default()
+        };
+
+        let media = provider.generate(request).await.map_err(|e| {
+            AgentError::tool_execution(format!("Video generation failed: {}", e))
+        })?;
+
+        let urls: Vec<String> = media
+            .iter()
+            .filter_map(|m| m.url.clone())
+            .collect();
+
+        let result = serde_json::json!({
+            "generated": !media.is_empty(),
+            "count": media.len(),
+            "urls": urls,
+            "provider": provider_name,
+        });
+
+        let duration = start.elapsed();
+        Ok(ToolResult::success(tool_use_id, result).with_duration(duration))
+    }
+
+    fn group(&self) -> ToolGroup {
+        ToolGroup::Custom
+    }
+}
+
+/// Music generation tool - Generate music from text prompts.
+pub struct MusicGenerateTool {
+    registry: Arc<smartassist_providers::media::MusicProviderRegistry>,
+}
+
+impl MusicGenerateTool {
+    /// Create a new music generation tool.
+    pub fn new(registry: Arc<smartassist_providers::media::MusicProviderRegistry>) -> Self {
+        Self { registry }
+    }
+}
+
+#[async_trait]
+impl Tool for MusicGenerateTool {
+    fn name(&self) -> &str {
+        "music_generate"
+    }
+
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition {
+            name: "music_generate".to_string(),
+            description: "Generate music and audio from text descriptions using AI models.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "prompt": {
+                        "type": "string",
+                        "description": "Text description of the music to generate"
+                    },
+                    "provider": {
+                        "type": "string",
+                        "enum": ["openai_music"],
+                        "description": "Provider to use"
+                    },
+                    "model": {
+                        "type": "string",
+                        "description": "Model ID"
+                    },
+                    "duration": {
+                        "type": "integer",
+                        "description": "Duration in seconds"
+                    },
+                    "genre": {
+                        "type": "string",
+                        "description": "Music genre"
+                    },
+                    "tempo": {
+                        "type": "integer",
+                        "description": "Tempo in BPM"
+                    }
+                },
+                "required": ["prompt"]
+            }),
+            execution: ToolExecutionConfig::default(),
+        }
+    }
+
+    async fn execute(
+        &self,
+        tool_use_id: &str,
+        args: serde_json::Value,
+        _context: &ToolContext,
+    ) -> Result<ToolResult> {
+        let start = Instant::now();
+
+        let prompt = args
+            .get("prompt")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| AgentError::tool_execution("Missing 'prompt' argument"))?;
+
+        let provider_name = args.get("provider").and_then(|v| v.as_str());
+        let model = args.get("model").and_then(|v| v.as_str());
+        let duration = args.get("duration").and_then(|v| v.as_u64()).map(|d| d as u32);
+        let genre = args.get("genre").and_then(|v| v.as_str());
+        let tempo = args.get("tempo").and_then(|v| v.as_u64()).map(|t| t as u32);
+
+        let providers = self.registry.list().await;
+        if providers.is_empty() {
+            return Ok(ToolResult::success(tool_use_id, serde_json::json!({
+                "generated": false,
+                "message": "No music generation providers configured."
+            })).with_duration(start.elapsed()));
+        }
+
+        let provider_name = provider_name
+            .or_else(|| providers.first().map(|s| s.as_str()))
+            .unwrap_or("openai_music");
+
+        let provider = match self.registry.get(provider_name).await {
+            Some(p) => p,
+            None => {
+                return Err(AgentError::tool_execution(format!(
+                    "Provider '{}' not found. Available: {}",
+                    provider_name,
+                    providers.join(", ")
+                )));
+            }
+        };
+
+        let request = smartassist_providers::media::MusicGenerationRequest {
+            prompt: prompt.to_string(),
+            duration_seconds: duration,
+            genre: genre.map(|s| s.to_string()),
+            tempo,
+            model: model.map(|s| s.to_string()),
+            ..Default::default()
+        };
+
+        let media = provider.generate(request).await.map_err(|e| {
+            AgentError::tool_execution(format!("Music generation failed: {}", e))
+        })?;
+
+        let urls: Vec<String> = media
+            .iter()
+            .filter_map(|m| m.url.clone())
+            .collect();
+
+        let result = serde_json::json!({
+            "generated": !media.is_empty(),
+            "count": media.len(),
+            "urls": urls,
+            "provider": provider_name,
+        });
 
         let duration = start.elapsed();
         Ok(ToolResult::success(tool_use_id, result).with_duration(duration))
@@ -196,6 +605,8 @@ pub struct TtsTool {
     api_key: Option<String>,
     /// Base URL for the TTS API.
     base_url: String,
+    /// Optional TTS provider registry.
+    registry: Option<Arc<smartassist_providers::media::TtsProviderRegistry>>,
 }
 
 impl Default for TtsTool {
@@ -212,6 +623,7 @@ impl TtsTool {
             client: reqwest::Client::new(),
             api_key,
             base_url: "https://api.openai.com".to_string(),
+            registry: None,
         }
     }
 
@@ -232,6 +644,15 @@ impl TtsTool {
         self.base_url = url.into();
         self
     }
+
+    /// Set the TTS provider registry.
+    pub fn with_registry(
+        mut self,
+        registry: Arc<smartassist_providers::media::TtsProviderRegistry>,
+    ) -> Self {
+        self.registry = Some(registry);
+        self
+    }
 }
 
 #[async_trait]
@@ -243,7 +664,7 @@ impl Tool for TtsTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "tts".to_string(),
-            description: "Convert text to speech audio. Generates audio files from text."
+            description: "Convert text to speech audio. Generates audio files from text. Supports OpenAI, ElevenLabs, Azure, and local TTS."
                 .to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
@@ -254,8 +675,12 @@ impl Tool for TtsTool {
                     },
                     "voice": {
                         "type": "string",
-                        "enum": ["alloy", "echo", "fable", "onyx", "nova", "shimmer"],
                         "description": "Voice to use"
+                    },
+                    "provider": {
+                        "type": "string",
+                        "enum": ["openai_tts", "elevenlabs_tts", "azure_tts", "local_tts"],
+                        "description": "TTS provider to use"
                     },
                     "output": {
                         "type": "string",
@@ -292,6 +717,7 @@ impl Tool for TtsTool {
 
         let speed = args.get("speed").and_then(|v| v.as_f64()).unwrap_or(1.0);
         let output = args.get("output").and_then(|v| v.as_str());
+        let provider_name = args.get("provider").and_then(|v| v.as_str());
 
         debug!(
             "TTS: {} chars, voice={}, speed={}",
@@ -300,13 +726,58 @@ impl Tool for TtsTool {
             speed
         );
 
-        // Validate speed range.
         if !(0.25..=4.0).contains(&speed) {
             return Err(AgentError::tool_execution(
                 "Speed must be between 0.25 and 4.0",
             ));
         }
 
+        // Try provider registry first if available and a provider is specified
+        if let Some(registry) = &self.registry {
+            let providers = registry.list().await;
+            if !providers.is_empty() {
+                let name = provider_name
+                    .or_else(|| providers.first().map(|s| s.as_str()))
+                    .unwrap_or("openai_tts");
+
+                if let Some(provider) = registry.get(name).await {
+                    let request = smartassist_providers::media::TtsRequest {
+                        text: text.to_string(),
+                        voice: Some(voice.to_string()),
+                        speed: Some(speed as f32),
+                        format: output.map(|s| {
+                            std::path::Path::new(s)
+                                .extension()
+                                .and_then(|e| e.to_str())
+                                .unwrap_or("mp3")
+                                .to_string()
+                        }),
+                        model: None,
+                        extra: std::collections::HashMap::new(),
+                    };
+
+                    let media = provider.speak(request).await.map_err(|e| {
+                        AgentError::tool_execution(format!("TTS failed: {}", e))
+                    })?;
+
+                    let result = serde_json::json!({
+                        "text_length": text.len(),
+                        "voice": voice,
+                        "speed": speed,
+                        "provider": name,
+                        "generated": true,
+                        "url": media.url,
+                        "path": media.path,
+                        "mime_type": media.mime_type,
+                        "size_bytes": media.size_bytes,
+                    });
+                    let duration = start.elapsed();
+                    return Ok(ToolResult::success(tool_use_id, result).with_duration(duration));
+                }
+            }
+        }
+
+        // Fallback to direct OpenAI API implementation
         let output_path = output
             .map(|s| s.to_string())
             .unwrap_or_else(|| format!("/tmp/tts_{}.mp3", uuid::Uuid::new_v4()));
@@ -314,19 +785,17 @@ impl Tool for TtsTool {
         let api_key = match &self.api_key {
             Some(key) => key.clone(),
             None => {
-                // No API key configured -- return informational result.
                 let result = serde_json::json!({
                     "text_length": text.len(),
                     "voice": voice,
                     "generated": false,
-                    "message": "TTS API key not configured. Set OPENAI_API_KEY."
+                    "message": "TTS API key not configured. Set OPENAI_API_KEY or configure a provider registry."
                 });
                 let duration = start.elapsed();
                 return Ok(ToolResult::success(tool_use_id, result).with_duration(duration));
             }
         };
 
-        // Call the OpenAI TTS API.
         let url = format!("{}/v1/audio/speech", self.base_url);
         let body = serde_json::json!({
             "model": "tts-1",
@@ -361,7 +830,6 @@ impl Tool for TtsTool {
         })?;
         let byte_count = audio_bytes.len();
 
-        // Write the audio bytes to the output file.
         tokio::fs::write(&output_path, &audio_bytes)
             .await
             .map_err(|e| {
@@ -428,5 +896,26 @@ mod tests {
     fn test_tts_tool_with_base_url() {
         let tool = TtsTool::new().with_base_url("https://custom.api.example.com");
         assert_eq!(tool.base_url, "https://custom.api.example.com");
+    }
+
+    #[test]
+    fn test_image_generate_tool_creation() {
+        let registry = Arc::new(smartassist_providers::media::ImageProviderRegistry::new());
+        let tool = ImageGenerateTool::new(registry);
+        assert_eq!(tool.name(), "image_generate");
+    }
+
+    #[test]
+    fn test_video_generate_tool_creation() {
+        let registry = Arc::new(smartassist_providers::media::VideoProviderRegistry::new());
+        let tool = VideoGenerateTool::new(registry);
+        assert_eq!(tool.name(), "video_generate");
+    }
+
+    #[test]
+    fn test_music_generate_tool_creation() {
+        let registry = Arc::new(smartassist_providers::media::MusicProviderRegistry::new());
+        let tool = MusicGenerateTool::new(registry);
+        assert_eq!(tool.name(), "music_generate");
     }
 }

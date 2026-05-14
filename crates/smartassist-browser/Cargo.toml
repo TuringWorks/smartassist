@@ -1,0 +1,40 @@
+[package]
+name = "smartassist-browser"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+description = "Browser automation and sandboxing for SmartAssist"
+
+[features]
+default = []
+docker = ["bollard"]
+
+[dependencies]
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+reqwest = { workspace = true }
+async-trait = { workspace = true }
+
+smartassist-core = { workspace = true }
+smartassist-sandbox = { workspace = true }
+
+# Browser automation
+chromiumoxide = { version = "0.7", features = ["tokio-runtime"], optional = true }
+
+# Docker backend
+bollard = { version = "0.16", optional = true }
+
+[dev-dependencies]
+tokio-test = "0.4"
+tempfile = "3.8"
+mockall = "0.12"

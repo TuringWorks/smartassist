@@ -42,6 +42,9 @@ chrono = { version = "0.4", features = ["serde"] }
 # UUID generation
 uuid = { version = "1.6", features = ["v4"] }
 
+# Pattern matching
+regex.workspace = true
+
 # Platform directories
 dirs = "5.0"
 
@@ -59,6 +62,13 @@ signal = []
 imessage = ["dep:rusqlite"]
 whatsapp = []
 line = ["dep:hmac", "dep:sha2", "dep:base64"]
+irc = []
+matrix = []
+googlechat = []
+msteams = []
+feishu = []
+mattermost = []
+zalo = []
 
 [dependencies.teloxide]
 version = "0.12"

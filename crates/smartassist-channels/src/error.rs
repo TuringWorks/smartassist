@@ -90,6 +90,10 @@ pub enum ChannelError {
     /// Internal error.
     #[error("Internal error: {0}")]
     Internal(String),
+
+    /// Unsupported operation.
+    #[error("Unsupported operation: {0}")]
+    Unsupported(String),
 }
 
 impl ChannelError {

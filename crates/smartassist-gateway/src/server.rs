@@ -238,8 +238,7 @@ impl Gateway {
         let gateway = Self::new(config);
 
         // Create handler context with default config
-        let context = crate::handlers::HandlerContext::new()
-            .with_config(Arc::new(RwLock::new(serde_json::json!({}))));
+        let context = Self::build_context(None).await;
 
         // Register all handlers
         crate::handlers::register_all(&gateway.state.methods, context).await;
@@ -255,14 +254,42 @@ impl Gateway {
         let gateway = Self::new(config);
 
         // Create handler context with provider
-        let context = crate::handlers::HandlerContext::new()
-            .with_config(Arc::new(RwLock::new(serde_json::json!({}))))
-            .with_provider(provider);
+        let context = Self::build_context(Some(provider)).await;
 
         // Register all handlers
         crate::handlers::register_all(&gateway.state.methods, context).await;
 
         gateway
+    }
+
+    /// Build the handler context with tools and optional provider.
+    async fn build_context(
+        provider: Option<Arc<dyn smartassist_providers::Provider>>,
+    ) -> crate::handlers::HandlerContext {
+        let tool_registry = Arc::new(smartassist_agent::ToolRegistry::with_defaults().await);
+        let tool_executor = Arc::new(smartassist_agent::ToolExecutor::new(tool_registry.clone()));
+
+        let mut context = crate::handlers::HandlerContext::new()
+            .with_config(Arc::new(RwLock::new(serde_json::json!({}))))
+            .with_tools(tool_registry, tool_executor);
+
+        if let Some(provider) = provider {
+            context = context.with_provider(provider);
+        }
+
+        let browser_manager = Arc::new(smartassist_browser::BrowserManager::new(
+            Arc::new(smartassist_browser::docker::DockerBrowserBackend::new()),
+        ));
+        let canvas_manager = Arc::new(smartassist_canvas::CanvasManager::new());
+
+        let (talk_runtime, _talk_events) = smartassist_talk::TalkRuntimeBuilder::default().build();
+
+        context = context
+            .with_browser_manager(browser_manager)
+            .with_canvas_manager(canvas_manager)
+            .with_talk_runtime(Arc::new(talk_runtime));
+
+        context
     }
 
     /// Get the method registry for registering handlers.

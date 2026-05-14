@@ -1,0 +1,12 @@
+{
+  "channel": "telegram",
+  "message_id": 42,
+  "chat_id": -1001234567890,
+  "sender": {
+    "id": 987654321,
+    "username": "testuser",
+    "display_name": "Test User"
+  },
+  "text": "Hello SmartAssist",
+  "timestamp": "2026-05-12T10:00:00Z"
+}

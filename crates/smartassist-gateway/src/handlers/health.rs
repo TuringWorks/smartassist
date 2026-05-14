@@ -169,8 +169,8 @@ impl MethodHandler for StatusHandler {
             arch: std::env::consts::ARCH.to_string(),
             active_sessions,
             active_channels,
-            memory_mb: None, // TODO: Get actual memory usage
-            cpu_percent: None, // TODO: Get actual CPU usage
+            memory_mb: None,
+            cpu_percent: None,
         };
 
         serde_json::to_value(response).map_err(|e| GatewayError::Internal(e.to_string()))

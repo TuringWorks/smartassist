@@ -43,12 +43,14 @@
 mod channel;
 mod error;
 mod hooks;
+mod marketplace;
 mod provider;
 mod tool;
 
 pub use channel::{ChannelPlugin, ChannelPluginFactory};
 pub use error::{PluginError, Result};
 pub use hooks::{Hook, HookContext, HookResult, HookType};
+pub use marketplace::{CatalogResponse, InstalledSkill, InstallStatus, MarketplaceClient, SkillInstaller, SkillManifest};
 pub use provider::{ModelProviderPlugin, ProviderCapabilities};
 pub use tool::{PluginTool, ToolExecutionContext, ToolPlugin, ToolPluginFactory};
 
@@ -584,11 +586,12 @@ impl PluginLoader {
 /// Prelude module for convenient imports.
 pub mod prelude {
     pub use super::{
-        Channel, ChannelLifecycle, ChannelPlugin, ChannelPluginFactory, ChannelReceiver,
-        ChannelSender, Hook, HookContext, HookResult, HookType, ModelProviderPlugin, Plugin,
+        CatalogResponse, Channel, ChannelLifecycle, ChannelPlugin, ChannelPluginFactory,
+        ChannelReceiver, ChannelSender, Hook, HookContext, HookResult, HookType,
+        InstalledSkill, InstallStatus, MarketplaceClient, ModelProviderPlugin, Plugin,
         PluginCapability, PluginConfig, PluginContext, PluginError, PluginHealth, PluginLoader,
-        PluginMetadata, PluginState, PluginTool, ProviderCapabilities, Result, ToolExecutionContext,
-        ToolPlugin, ToolPluginFactory, Version,
+        PluginMetadata, PluginState, PluginTool, ProviderCapabilities, Result, SkillInstaller,
+        SkillManifest, ToolExecutionContext, ToolPlugin, ToolPluginFactory, Version,
     };
 
     pub use super::{

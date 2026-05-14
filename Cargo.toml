@@ -11,8 +11,17 @@ members = [
     "crates/smartassist-plugin-sdk",
     "crates/smartassist-providers",
     "crates/smartassist-secrets",
+    "crates/smartassist-browser",
+    "crates/smartassist-canvas",
+    "crates/smartassist-cron",
+    "crates/smartassist-transcription",
+    "crates/smartassist-talk",
+    "crates/smartassist-mcp",
+    "crates/smartassist-security",
     "examples/hello-plugin",
     "tests/integration",
+    "tests/bdd",
+    "tests/e2e",
     "smartassist-control/src-tauri",
 ]
 
@@ -96,6 +105,10 @@ smartassist-memory = { path = "crates/smartassist-memory" }
 smartassist-gateway = { path = "crates/smartassist-gateway" }
 smartassist-plugin-sdk = { path = "crates/smartassist-plugin-sdk" }
 smartassist-providers = { path = "crates/smartassist-providers" }
+smartassist-transcription = { path = "crates/smartassist-transcription" }
+smartassist-talk = { path = "crates/smartassist-talk" }
+smartassist-mcp = { path = "crates/smartassist-mcp" }
+smartassist-security = { path = "crates/smartassist-security" }
 
 [profile.release]
 lto = "thin"

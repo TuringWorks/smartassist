@@ -16,9 +16,13 @@ pub mod sessions;
 pub mod skills;
 pub mod system;
 pub mod wizard;
+pub mod browser;
+pub mod canvas;
+pub mod talk;
 
 use crate::methods::MethodRegistry;
 use smartassist_providers::Provider;
+use smartassist_agent::{ToolExecutor, ToolRegistry};
 use std::sync::Arc;
 
 pub use agent::{AgentHandler, AgentStreamHandler};
@@ -29,8 +33,9 @@ pub use cron::{
     CronScheduler, CronStatusHandler, CronUpdateHandler, WakeHandler,
 };
 pub use device::{
-    DevicePairApproveHandler, DevicePairListHandler, DevicePairRejectHandler,
-    DeviceTokenRevokeHandler, DeviceTokenRotateHandler,
+    DevicePairApproveHandler, DevicePairInitiateHandler, DevicePairListHandler,
+    DevicePairRejectHandler, DeviceStatusHandler, DeviceTokenRevokeHandler,
+    DeviceTokenRotateHandler, DeviceUnpairHandler,
 };
 pub use exec::{
     ApprovalQueue, ExecApprovalRequestHandler, ExecApprovalResolveHandler,
@@ -53,6 +58,12 @@ pub use system::{
     SystemPresenceHandler,
 };
 pub use wizard::{WizardCancelHandler, WizardNextHandler, WizardStartHandler, WizardStatusHandler};
+pub use browser::{BrowserLaunchHandler, BrowserCloseHandler, BrowserExecuteHandler, BrowserListHandler};
+pub use canvas::{CanvasCreateHandler, CanvasDeleteHandler, CanvasExecuteHandler, CanvasListHandler, CanvasSubscribeHandler};
+pub use talk::{
+    TalkAudioHandler, TalkListHandler, TalkPttPressHandler, TalkPttReleaseHandler,
+    TalkStartHandler, TalkStatusHandler, TalkStopHandler,
+};
 
 /// Register all built-in method handlers.
 pub async fn register_all(registry: &MethodRegistry, context: HandlerContext) {
@@ -164,6 +175,9 @@ pub async fn register_all(registry: &MethodRegistry, context: HandlerContext) {
 
     // Device methods
     registry
+        .register("device.pair", Arc::new(DevicePairInitiateHandler::new(ctx.clone())))
+        .await;
+    registry
         .register("device.pair.list", Arc::new(DevicePairListHandler::new(ctx.clone())))
         .await;
     registry
@@ -171,6 +185,12 @@ pub async fn register_all(registry: &MethodRegistry, context: HandlerContext) {
         .await;
     registry
         .register("device.pair.reject", Arc::new(DevicePairRejectHandler::new(ctx.clone())))
+        .await;
+    registry
+        .register("device.unpair", Arc::new(DeviceUnpairHandler::new(ctx.clone())))
+        .await;
+    registry
+        .register("device.status", Arc::new(DeviceStatusHandler::new(ctx.clone())))
         .await;
     registry
         .register("device.token.rotate", Arc::new(DeviceTokenRotateHandler::new(ctx.clone())))
@@ -259,6 +279,119 @@ pub async fn register_all(registry: &MethodRegistry, context: HandlerContext) {
     registry
         .register("wizard.status", Arc::new(WizardStatusHandler::new(ctx.clone())))
         .await;
+
+    // Browser methods
+    registry
+        .register("browser.launch", Arc::new(BrowserLaunchHandler::new(ctx.clone())))
+        .await;
+    registry
+        .register("browser.close", Arc::new(BrowserCloseHandler::new(ctx.clone())))
+        .await;
+    registry
+        .register("browser.execute", Arc::new(BrowserExecuteHandler::new(ctx.clone())))
+        .await;
+    registry
+        .register("browser.list", Arc::new(BrowserListHandler::new(ctx.clone())))
+        .await;
+
+    // Canvas methods
+    registry
+        .register("canvas.create", Arc::new(CanvasCreateHandler::new(ctx.clone())))
+        .await;
+    registry
+        .register("canvas.delete", Arc::new(CanvasDeleteHandler::new(ctx.clone())))
+        .await;
+    registry
+        .register("canvas.execute", Arc::new(CanvasExecuteHandler::new(ctx.clone())))
+        .await;
+    registry
+        .register("canvas.list", Arc::new(CanvasListHandler::new(ctx.clone())))
+        .await;
+    registry
+        .register("canvas.subscribe", Arc::new(CanvasSubscribeHandler::new(ctx.clone())))
+        .await;
+
+    // Talk methods
+    registry
+        .register("talk.start", Arc::new(TalkStartHandler::new(ctx.clone())))
+        .await;
+    registry
+        .register("talk.stop", Arc::new(TalkStopHandler::new(ctx.clone())))
+        .await;
+    registry
+        .register("talk.ptt_press", Arc::new(TalkPttPressHandler::new(ctx.clone())))
+        .await;
+    registry
+        .register("talk.ptt_release", Arc::new(TalkPttReleaseHandler::new(ctx.clone())))
+        .await;
+    registry
+        .register("talk.status", Arc::new(TalkStatusHandler::new(ctx.clone())))
+        .await;
+    registry
+        .register("talk.list", Arc::new(TalkListHandler::new(ctx.clone())))
+        .await;
+    registry
+        .register("talk.audio", Arc::new(TalkAudioHandler::new(ctx.clone())))
+        .await;
+}
+
+/// Simplified session data for handlers.
+#[derive(Clone, Debug, Default)]
+pub struct SessionData {
+    pub key: String,
+    pub agent_id: Option<String>,
+    pub status: String,
+    pub messages: Vec<serde_json::Value>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub last_activity: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// Simplified node data for handlers.
+#[derive(Clone, Debug, Default)]
+pub struct NodeData {
+    pub id: String,
+    pub name: String,
+    pub node_type: String,
+    pub paired: bool,
+    pub online: bool,
+    pub last_seen: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// Simplified device data for handlers.
+#[derive(Clone, Debug, Default)]
+pub struct DeviceData {
+    pub id: String,
+    pub name: String,
+    pub device_type: String,
+    pub paired_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub last_seen: Option<chrono::DateTime<chrono::Utc>>,
+    pub connected: bool,
+}
+
+/// Simplified skill data for handlers.
+#[derive(Clone, Debug)]
+pub struct SkillData {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    pub description: Option<String>,
+    pub enabled: bool,
+    pub builtin: bool,
+    pub path: Option<String>,
+}
+
+impl Default for SkillData {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            name: String::new(),
+            version: "1.0.0".to_string(),
+            description: None,
+            enabled: true,
+            builtin: false,
+            path: None,
+        }
+    }
 }
 
 /// Shared context for method handlers.
@@ -287,6 +420,30 @@ pub struct HandlerContext {
 
     /// Path to config file for persistence.
     pub config_path: Option<std::path::PathBuf>,
+
+    /// Tool registry for agent tool execution.
+    pub tool_registry: Option<Arc<ToolRegistry>>,
+
+    /// Tool executor for running tools.
+    pub tool_executor: Option<Arc<ToolExecutor>>,
+
+    /// Registered nodes (simplified in-memory storage).
+    pub nodes: Arc<tokio::sync::RwLock<std::collections::HashMap<String, NodeData>>>,
+
+    /// Paired devices (simplified in-memory storage).
+    pub devices: Arc<tokio::sync::RwLock<std::collections::HashMap<String, DeviceData>>>,
+
+    /// Installed skills (simplified in-memory storage).
+    pub skills: Arc<tokio::sync::RwLock<std::collections::HashMap<String, SkillData>>>,
+
+    /// Browser automation manager.
+    pub browser_manager: Option<Arc<smartassist_browser::BrowserManager>>,
+
+    /// Canvas workspace manager.
+    pub canvas_manager: Option<Arc<smartassist_canvas::CanvasManager>>,
+
+    /// Talk / voice runtime.
+    pub talk_runtime: Option<Arc<smartassist_talk::TalkRuntime>>,
 }
 
 impl Default for HandlerContext {
@@ -300,19 +457,16 @@ impl Default for HandlerContext {
             approval_queue: Arc::new(ApprovalQueue::new()),
             cron_scheduler: Arc::new(CronScheduler::new()),
             config_path: None,
+            tool_registry: None,
+            tool_executor: None,
+            nodes: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
+            devices: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
+            skills: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
+            browser_manager: None,
+            canvas_manager: None,
+            talk_runtime: None,
         }
     }
-}
-
-/// Simplified session data for handlers.
-#[derive(Clone, Debug, Default)]
-pub struct SessionData {
-    pub key: String,
-    pub agent_id: Option<String>,
-    pub status: String,
-    pub messages: Vec<serde_json::Value>,
-    pub created_at: chrono::DateTime<chrono::Utc>,
-    pub last_activity: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl HandlerContext {
@@ -342,6 +496,35 @@ impl HandlerContext {
     /// Set the config file path for persistence.
     pub fn with_config_path(mut self, path: std::path::PathBuf) -> Self {
         self.config_path = Some(path);
+        self
+    }
+
+    /// Set the tool registry and executor.
+    pub fn with_tools(
+        mut self,
+        registry: Arc<ToolRegistry>,
+        executor: Arc<ToolExecutor>,
+    ) -> Self {
+        self.tool_registry = Some(registry);
+        self.tool_executor = Some(executor);
+        self
+    }
+
+    /// Set the browser manager.
+    pub fn with_browser_manager(mut self, manager: Arc<smartassist_browser::BrowserManager>) -> Self {
+        self.browser_manager = Some(manager);
+        self
+    }
+
+    /// Set the canvas manager.
+    pub fn with_canvas_manager(mut self, manager: Arc<smartassist_canvas::CanvasManager>) -> Self {
+        self.canvas_manager = Some(manager);
+        self
+    }
+
+    /// Set the talk runtime.
+    pub fn with_talk_runtime(mut self, runtime: Arc<smartassist_talk::TalkRuntime>) -> Self {
+        self.talk_runtime = Some(runtime);
         self
     }
 }

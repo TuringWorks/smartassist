@@ -1,0 +1,25 @@
+{
+  "gateway": {
+    "host": "127.0.0.1",
+    "port": 3000,
+    "auth": {
+      "mode": "token",
+      "token": "test-token-12345"
+    }
+  },
+  "agent": {
+    "default_model": "claude-sonnet-4-6",
+    "max_context": 128000,
+    "safety": {
+      "sandbox_mode": "strict",
+      "approval_required": true
+    }
+  },
+  "channels": {
+    "enabled": ["web", "telegram", "discord"],
+    "web": {
+      "enabled": true,
+      "cors_origins": ["http://localhost:5173"]
+    }
+  }
+}

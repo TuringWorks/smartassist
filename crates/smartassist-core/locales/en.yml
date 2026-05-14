@@ -1,0 +1,13 @@
+en:
+  welcome: "Welcome to SmartAssist"
+  goodbye: "Goodbye!"
+  error_config_not_found: "Configuration file not found"
+  error_config_invalid: "Configuration is invalid"
+  error_api_key_missing: "API key is missing"
+  error_agent_not_found: "Agent %{agent} not found"
+  prompt_setup: "Run 'smartassist init' to set up your configuration"
+  status_gateway_running: "Gateway is running"
+  status_gateway_stopped: "Gateway is not running"
+  check_pass: "Pass"
+  check_fail: "Fail"
+  check_warn: "Warning"
