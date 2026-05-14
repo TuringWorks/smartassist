@@ -26,7 +26,7 @@ use smartassist_providers::Provider;
 use smartassist_agent::{ToolExecutor, ToolRegistry};
 use std::sync::Arc;
 
-pub use agent::{AgentHandler, AgentStreamHandler};
+pub use agent::{AgentHandler, AgentStreamHandler, AgentStopHandler, AgentStatusHandler};
 pub use chat::{ChatAbortHandler, ChatHandler, ChatHistoryHandler};
 pub use config::{ConfigGetHandler, ConfigPatchHandler, ConfigSchemaHandler, ConfigSetHandler};
 pub use cron::{
@@ -260,6 +260,12 @@ pub async fn register_all(registry: &MethodRegistry, context: HandlerContext) {
         .await;
     registry
         .register("agent.stream", Arc::new(AgentStreamHandler::new(ctx.clone())))
+        .await;
+    registry
+        .register("agent.stop", Arc::new(AgentStopHandler::new(ctx.clone())))
+        .await;
+    registry
+        .register("agent.status", Arc::new(AgentStatusHandler::new(ctx.clone())))
         .await;
 
     // Skills methods

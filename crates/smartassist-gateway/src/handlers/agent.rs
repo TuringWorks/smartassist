@@ -375,9 +375,97 @@ impl MethodHandler for AgentStreamHandler {
     }
 }
 
+/// Parameters for agent stop/status methods.
+#[derive(Debug, Deserialize)]
+pub struct AgentSessionParams {
+    /// Session key.
+    pub session_key: String,
+}
+
+/// Agent stop handler.
+pub struct AgentStopHandler {
+    context: Arc<HandlerContext>,
+}
+
+impl AgentStopHandler {
+    pub fn new(context: Arc<HandlerContext>) -> Self {
+        Self { context }
+    }
+}
+
+#[async_trait]
+impl MethodHandler for AgentStopHandler {
+    async fn call(&self, params: Option<serde_json::Value>) -> Result<serde_json::Value> {
+        let params: AgentSessionParams = params
+            .ok_or_else(|| GatewayError::InvalidParams("Missing parameters".to_string()))?
+            .try_into()
+            .map_err(|e: serde_json::Error| GatewayError::InvalidParams(e.to_string()))?;
+
+        debug!("Agent stop request for session: {}", params.session_key);
+
+        let mut sessions = self.context.sessions.write().await;
+        let session = sessions.get_mut(&params.session_key).ok_or_else(|| {
+            GatewayError::NotFound(format!("Session '{}' not found", params.session_key))
+        })?;
+
+        session.status = "stopped".to_string();
+        session.last_activity = Some(chrono::Utc::now());
+
+        Ok(serde_json::json!({
+            "session_key": params.session_key,
+            "stopped": true,
+            "status": "stopped",
+        }))
+    }
+}
+
+/// Agent status handler.
+pub struct AgentStatusHandler {
+    context: Arc<HandlerContext>,
+}
+
+impl AgentStatusHandler {
+    pub fn new(context: Arc<HandlerContext>) -> Self {
+        Self { context }
+    }
+}
+
+#[async_trait]
+impl MethodHandler for AgentStatusHandler {
+    async fn call(&self, params: Option<serde_json::Value>) -> Result<serde_json::Value> {
+        let params: AgentSessionParams = params
+            .ok_or_else(|| GatewayError::InvalidParams("Missing parameters".to_string()))?
+            .try_into()
+            .map_err(|e: serde_json::Error| GatewayError::InvalidParams(e.to_string()))?;
+
+        debug!("Agent status request for session: {}", params.session_key);
+
+        let sessions = self.context.sessions.read().await;
+        let session = sessions.get(&params.session_key).ok_or_else(|| {
+            GatewayError::NotFound(format!("Session '{}' not found", params.session_key))
+        })?;
+
+        Ok(serde_json::json!({
+            "session_key": session.key,
+            "agent_id": session.agent_id,
+            "status": session.status,
+            "message_count": session.messages.len(),
+            "created_at": session.created_at.to_rfc3339(),
+            "last_activity": session.last_activity.map(|t| t.to_rfc3339()),
+        }))
+    }
+}
+
 // TryFrom implementations
 
 impl TryFrom<serde_json::Value> for AgentParams {
+    type Error = serde_json::Error;
+    fn try_from(value: serde_json::Value) -> std::result::Result<Self, Self::Error> {
+        serde_json::from_value(value)
+    }
+}
+
+impl TryFrom<serde_json::Value> for AgentSessionParams {
     type Error = serde_json::Error;
     fn try_from(value: serde_json::Value) -> std::result::Result<Self, Self::Error> {
         serde_json::from_value(value)
