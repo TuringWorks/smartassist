@@ -7,6 +7,7 @@ import {
   Section,
   SaveBar,
   Toast,
+  PageHeader,
   styles,
 } from "../components/FormComponents";
 
@@ -22,10 +23,10 @@ export default function Agents() {
   };
 
   return (
-    <div>
-      <h1 style={{ "margin-bottom": "24px", "font-size": "24px" }}>Agents</h1>
+    <div style={{ "padding-bottom": "80px" }}>
+      <PageHeader title="Agents" subtitle="Manage AI agent configurations and defaults" />
 
-      <Show when={config()} fallback={<p style={{ color: "#8b949e" }}>Loading...</p>}>
+      <Show when={config()} fallback={<p style={{ color: "var(--text-tertiary)" }}>Loading...</p>}>
         {(cfg) => (
           <>
             <Section title="Defaults">
@@ -95,9 +96,9 @@ export default function Agents() {
                   return (
                     <div
                       style={{
-                        background: "#0d1117",
-                        border: "1px solid #30363d",
-                        "border-radius": "6px",
+                        background: "var(--bg-input)",
+                        border: "1px solid var(--border-primary)",
+                        "border-radius": "var(--radius-sm)",
                         padding: "16px",
                         "margin-bottom": "12px",
                       }}
@@ -115,12 +116,12 @@ export default function Agents() {
                         }
                       >
                         <div>
-                          <strong style={{ color: "#f0f6fc" }}>
+                          <strong style={{ color: "var(--text-heading)" }}>
                             {agent.name || id}
                           </strong>
                           <span
                             style={{
-                              color: "#8b949e",
+                              color: "var(--text-tertiary)",
                               "font-size": "13px",
                               "margin-left": "8px",
                             }}
@@ -128,7 +129,7 @@ export default function Agents() {
                             {agent.model ?? cfg().agents.defaults.model ?? "no model"}
                           </span>
                         </div>
-                        <span style={{ color: "#8b949e", "font-size": "12px" }}>
+                        <span style={{ color: "var(--text-tertiary)", "font-size": "12px", "font-weight": "500" }}>
                           {editingAgent() === id ? "Collapse" : "Edit"}
                         </span>
                       </div>

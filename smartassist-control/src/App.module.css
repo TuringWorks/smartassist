@@ -1,3 +1,80 @@
+/* ── Design Tokens ─────────────────────────────────────────────── */
+:root {
+  /* Backgrounds */
+  --bg-root: #0a0e17;
+  --bg-surface: #111827;
+  --bg-surface-hover: #1a2332;
+  --bg-card: #141c2b;
+  --bg-card-hover: #192438;
+  --bg-input: #0c1220;
+  --bg-sidebar: rgba(14, 20, 33, 0.85);
+
+  /* Borders */
+  --border-primary: rgba(99, 118, 150, 0.18);
+  --border-subtle: rgba(99, 118, 150, 0.1);
+  --border-focus: rgba(99, 146, 255, 0.5);
+
+  /* Text */
+  --text-primary: #e8ecf4;
+  --text-secondary: #8896b0;
+  --text-tertiary: #5b6a82;
+  --text-heading: #f0f4fc;
+
+  /* Accents */
+  --accent-blue: #6392ff;
+  --accent-blue-dim: rgba(99, 146, 255, 0.15);
+  --accent-blue-glow: rgba(99, 146, 255, 0.25);
+  --accent-green: #34d399;
+  --accent-green-dim: rgba(52, 211, 153, 0.12);
+  --accent-red: #f87171;
+  --accent-red-dim: rgba(248, 113, 113, 0.12);
+  --accent-amber: #fbbf24;
+  --accent-amber-dim: rgba(251, 191, 36, 0.12);
+  --accent-purple: #a78bfa;
+  --accent-purple-dim: rgba(167, 139, 250, 0.12);
+  --accent-cyan: #22d3ee;
+  --accent-cyan-dim: rgba(34, 211, 238, 0.12);
+
+  /* Gradients */
+  --gradient-brand: linear-gradient(135deg, #6392ff 0%, #a78bfa 50%, #818cf8 100%);
+  --gradient-surface: linear-gradient(180deg, rgba(99, 146, 255, 0.04) 0%, transparent 100%);
+  --gradient-card-border: linear-gradient(135deg, rgba(99, 146, 255, 0.3), rgba(167, 139, 250, 0.1), transparent 70%);
+
+  /* Shadows */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.4);
+  --shadow-glow-blue: 0 0 20px rgba(99, 146, 255, 0.15);
+  --shadow-glow-green: 0 0 20px rgba(52, 211, 153, 0.15);
+
+  /* Radii */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+
+  /* Spacing */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+
+  /* Typography */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'SF Mono', 'Cascadia Code', 'JetBrains Mono', 'Fira Code', monospace;
+
+  /* Sidebar */
+  --sidebar-width: 250px;
+
+  /* Transitions */
+  --transition-fast: 0.15s ease;
+  --transition-base: 0.2s ease;
+  --transition-slow: 0.3s ease;
+}
+
+/* ── Global Reset ─────────────────────────────────────────────── */
+
 :global(*) {
   margin: 0;
   padding: 0;
@@ -10,12 +87,16 @@
 }
 
 :global(body) {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
-    Ubuntu, Cantarell, sans-serif;
-  background: #0f1117;
-  color: #e1e4e8;
+  font-family: var(--font-sans);
+  background: var(--bg-root);
+  color: var(--text-primary);
   overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
+
+/* ── App Layout ───────────────────────────────────────────────── */
 
 :global(.app-layout) {
   display: flex;
@@ -27,6 +108,101 @@
 :global(.app-content) {
   flex: 1;
   min-width: 0;
+  min-height: 0;
+  height: 100%;
   overflow-y: auto;
-  padding: 24px 32px;
+  padding: var(--space-xl) 40px;
+  background: var(--gradient-surface);
+  animation: fadeIn 0.3s ease;
+}
+
+/* ── Page Header ──────────────────────────────────────────────── */
+
+:global(.page-header) {
+  margin-bottom: var(--space-lg);
+}
+
+:global(.page-title) {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--text-heading);
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+}
+
+:global(.page-subtitle) {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-top: 6px;
+  line-height: 1.5;
+}
+
+/* ── Scrollbar ────────────────────────────────────────────────── */
+
+:global(*::-webkit-scrollbar) {
+  width: 6px;
+  height: 6px;
+}
+
+:global(*::-webkit-scrollbar-track) {
+  background: transparent;
+}
+
+:global(*::-webkit-scrollbar-thumb) {
+  background: rgba(99, 118, 150, 0.2);
+  border-radius: 3px;
+}
+
+:global(*::-webkit-scrollbar-thumb:hover) {
+  background: rgba(99, 118, 150, 0.35);
+}
+
+/* ── Selection ────────────────────────────────────────────────── */
+
+:global(::selection) {
+  background: var(--accent-blue-dim);
+  color: var(--text-heading);
+}
+
+/* ── Focus Visible ────────────────────────────────────────────── */
+
+:global(*:focus-visible) {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: 2px;
+}
+
+/* ── Animations ───────────────────────────────────────────────── */
+
+:global {
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+
+  @keyframes slideUp {
+    from {
+      opacity: 0;
+      transform: translateY(16px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
 }

@@ -7,6 +7,7 @@ import {
   Section,
   SaveBar,
   Toast,
+  PageHeader,
   styles,
 } from "../components/FormComponents";
 
@@ -15,12 +16,10 @@ export default function Channels() {
     useConfig();
 
   return (
-    <div>
-      <h1 style={{ "margin-bottom": "24px", "font-size": "24px" }}>
-        Channels
-      </h1>
+    <div style={{ "padding-bottom": "80px" }}>
+      <PageHeader title="Channels" subtitle="Configure messaging platform integrations" />
 
-      <Show when={config()} fallback={<p style={{ color: "#8b949e" }}>Loading...</p>}>
+      <Show when={config()} fallback={<p style={{ color: "var(--text-tertiary)" }}>Loading...</p>}>
         {(cfg) => (
           <>
             {/* Telegram */}
@@ -54,14 +53,14 @@ export default function Channels() {
                     return (
                       <div
                         style={{
-                          background: "#0d1117",
-                          border: "1px solid #30363d",
-                          "border-radius": "6px",
+                          background: "var(--bg-input)",
+                          border: "1px solid var(--border-primary)",
+                          "border-radius": "var(--radius-sm)",
                           padding: "16px",
                           "margin-top": "12px",
                         }}
                       >
-                        <strong style={{ color: "#f0f6fc" }}>{name}</strong>
+                        <strong style={{ color: "var(--text-heading)" }}>{name}</strong>
                         <SecretInput
                           label="Bot Token"
                           value={acct.bot_token}
@@ -149,14 +148,14 @@ export default function Channels() {
                     return (
                       <div
                         style={{
-                          background: "#0d1117",
-                          border: "1px solid #30363d",
-                          "border-radius": "6px",
+                          background: "var(--bg-input)",
+                          border: "1px solid var(--border-primary)",
+                          "border-radius": "var(--radius-sm)",
                           padding: "16px",
                           "margin-top": "12px",
                         }}
                       >
-                        <strong style={{ color: "#f0f6fc" }}>{name}</strong>
+                        <strong style={{ color: "var(--text-heading)" }}>{name}</strong>
                         <SecretInput
                           label="Bot Token"
                           value={acct.bot_token}
@@ -244,14 +243,14 @@ export default function Channels() {
                     return (
                       <div
                         style={{
-                          background: "#0d1117",
-                          border: "1px solid #30363d",
-                          "border-radius": "6px",
+                          background: "var(--bg-input)",
+                          border: "1px solid var(--border-primary)",
+                          "border-radius": "var(--radius-sm)",
                           padding: "16px",
                           "margin-top": "12px",
                         }}
                       >
-                        <strong style={{ color: "#f0f6fc" }}>{name}</strong>
+                        <strong style={{ color: "var(--text-heading)" }}>{name}</strong>
                         <SecretInput
                           label="Bot Token"
                           value={acct.bot_token}
@@ -387,14 +386,14 @@ export default function Channels() {
                     return (
                       <div
                         style={{
-                          background: "#0d1117",
-                          border: "1px solid #30363d",
-                          "border-radius": "6px",
+                          background: "var(--bg-input)",
+                          border: "1px solid var(--border-primary)",
+                          "border-radius": "var(--radius-sm)",
                           padding: "16px",
                           "margin-top": "12px",
                         }}
                       >
-                        <strong style={{ color: "#f0f6fc" }}>{name}</strong>
+                        <strong style={{ color: "var(--text-heading)" }}>{name}</strong>
                         <TextInput
                           label="Phone Number"
                           value={acct.phone_number}

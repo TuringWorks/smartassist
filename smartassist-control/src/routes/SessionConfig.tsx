@@ -7,6 +7,7 @@ import {
   Section,
   SaveBar,
   Toast,
+  PageHeader,
 } from "../components/FormComponents";
 
 export default function SessionConfig() {
@@ -14,12 +15,10 @@ export default function SessionConfig() {
     useConfig();
 
   return (
-    <div>
-      <h1 style={{ "margin-bottom": "24px", "font-size": "24px" }}>
-        Sessions
-      </h1>
+    <div style={{ "padding-bottom": "80px" }}>
+      <PageHeader title="Sessions" subtitle="Session scope, DM isolation, and reset policies" />
 
-      <Show when={config()} fallback={<p style={{ color: "#8b949e" }}>Loading...</p>}>
+      <Show when={config()} fallback={<p style={{ color: "var(--text-tertiary)" }}>Loading...</p>}>
         {(cfg) => (
           <>
             <Section title="Session Scope">

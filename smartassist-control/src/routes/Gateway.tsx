@@ -9,6 +9,7 @@ import {
   Section,
   SaveBar,
   Toast,
+  PageHeader,
 } from "../components/FormComponents";
 
 export default function GatewaySettings() {
@@ -16,10 +17,10 @@ export default function GatewaySettings() {
     useConfig();
 
   return (
-    <div>
-      <h1 style={{ "margin-bottom": "24px", "font-size": "24px" }}>Gateway</h1>
+    <div style={{ "padding-bottom": "80px" }}>
+      <PageHeader title="Gateway" subtitle="Network, authentication, and endpoint settings" />
 
-      <Show when={config()} fallback={<p style={{ color: "#8b949e" }}>Loading...</p>}>
+      <Show when={config()} fallback={<p style={{ color: "var(--text-tertiary)" }}>Loading...</p>}>
         {(cfg) => (
           <>
             <Section title="Network">

@@ -8,6 +8,9 @@ import {
   gatewayStop,
   gatewayRestart,
 } from "../lib/tauri";
+import { PageHeader } from "../components/FormComponents";
+import styles from "./Dashboard.module.css";
+
 export default function Dashboard() {
   const [version] = createResource(getVersion);
   const [configPath] = createResource(getConfigPath);
@@ -66,97 +69,96 @@ export default function Dashboard() {
   // Poll gateway status every 5 seconds
   setInterval(() => refetchGw(), 5000);
 
+  // Compute channel count
+  const channelCount = () => {
+    const c = config() as Record<string, any>;
+    if (!c?.channels) return 0;
+    let count = 0;
+    if (c.channels.telegram?.enabled) count++;
+    if (c.channels.discord?.enabled) count++;
+    if (c.channels.slack?.enabled) count++;
+    if (c.channels.signal?.enabled) count++;
+    if (c.channels.whatsapp?.enabled) count++;
+    return count;
+  };
+
+  const agentCount = () => {
+    const c = config() as Record<string, any>;
+    if (!c?.agents?.agents) return 0;
+    return Object.keys(c.agents.agents).length;
+  };
+
   return (
     <div>
-      <h1 style={{ "margin-bottom": "24px", "font-size": "24px" }}>
-        Dashboard
-      </h1>
+      <PageHeader
+        title="Dashboard"
+        subtitle="System overview and gateway management"
+      />
 
-      <div
-        style={{
-          display: "grid",
-          "grid-template-columns": "repeat(auto-fit, minmax(300px, 1fr))",
-          gap: "16px",
-        }}
-      >
-        {/* Version card */}
-        <div class="card">
-          <h3>SmartAssist</h3>
-          <p style={{ "font-size": "14px", color: "#8b949e" }}>
-            Version: {version() ?? "..."}
-          </p>
-          <p
-            style={{
-              "font-size": "12px",
-              color: "#8b949e",
-              "margin-top": "8px",
-              "word-break": "break-all",
-            }}
-          >
+      <div class={styles.dashGrid}>
+        {/* SmartAssist Version Card */}
+        <div class={styles.card}>
+          <div class={styles.cardHeader}>
+            <div class={styles.cardIconBlue}>
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 2L2 7l10 5 10-5-10-5z" />
+                <path d="M2 17l10 5 10-5" />
+                <path d="M2 12l10 5 10-5" />
+              </svg>
+            </div>
+            <span class={styles.cardTitle}>SmartAssist</span>
+          </div>
+          <div class={styles.cardMeta}>
+            <span>Version: {version() ?? "..."}</span>
+          </div>
+          <div class={styles.cardMetaMono}>
             Config: {configPath() ?? "..."}
-          </p>
+          </div>
         </div>
 
-        {/* Gateway status card */}
-        <div class="card">
-          <h3>Gateway</h3>
+        {/* Gateway Status Card */}
+        <div class={styles.card}>
+          <div class={styles.cardHeader}>
+            <div class={styles.cardIconGreen}>
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="2" width="20" height="8" rx="2" ry="2" />
+                <rect x="2" y="14" width="20" height="8" rx="2" ry="2" />
+                <line x1="6" y1="6" x2="6.01" y2="6" />
+                <line x1="6" y1="18" x2="6.01" y2="18" />
+              </svg>
+            </div>
+            <span class={styles.cardTitle}>Gateway</span>
+          </div>
           <Show
             when={gwStatus()}
-            fallback={<p style={{ color: "#8b949e" }}>Loading...</p>}
+            fallback={<div class={styles.cardMeta}>Loading...</div>}
           >
             {(gw) => (
               <div>
-                <div
-                  style={{
-                    display: "flex",
-                    "align-items": "center",
-                    gap: "8px",
-                    "margin-bottom": "12px",
-                  }}
-                >
+                <div class={styles.statusRow}>
                   <span
-                    style={{
-                      display: "inline-block",
-                      width: "10px",
-                      height: "10px",
-                      "border-radius": "50%",
-                      background: gw().running ? "#3fb950" : "#8b949e",
-                    }}
+                    class={gw().running ? styles.statusDotRunning : styles.statusDotStopped}
                   />
                   <span
-                    style={{
-                      "font-size": "14px",
-                      color: gw().running ? "#3fb950" : "#8b949e",
-                      "font-weight": "600",
-                    }}
+                    class={gw().running ? styles.statusRunning : styles.statusStopped}
                   >
                     {gw().running ? "Running" : "Stopped"}
                   </span>
                 </div>
-                <p style={{ "font-size": "14px", color: "#8b949e" }}>
-                  Port: {gw().port}
-                </p>
-                <Show when={gw().running && gw().pid}>
-                  <p style={{ "font-size": "14px", color: "#8b949e" }}>
-                    PID: {gw().pid}
-                  </p>
-                </Show>
-                <Show when={gw().running && gw().uptime_secs != null}>
-                  <p style={{ "font-size": "14px", color: "#8b949e" }}>
-                    Uptime: {formatUptime(gw().uptime_secs!)}
-                  </p>
-                </Show>
+                <div class={styles.cardMeta}>
+                  <span>Port: {gw().port}</span>
+                  <Show when={gw().running && gw().pid}>
+                    <span>PID: {gw().pid}</span>
+                  </Show>
+                  <Show when={gw().running && gw().uptime_secs != null}>
+                    <span>Uptime: {formatUptime(gw().uptime_secs!)}</span>
+                  </Show>
+                </div>
 
-                <div
-                  style={{
-                    display: "flex",
-                    gap: "8px",
-                    "margin-top": "16px",
-                  }}
-                >
+                <div class={styles.btnGroup}>
                   <Show when={!gw().running}>
                     <button
-                      class="btn-primary"
+                      class={styles.btnGreen}
                       disabled={gwAction() !== null}
                       onClick={handleStart}
                     >
@@ -165,14 +167,14 @@ export default function Dashboard() {
                   </Show>
                   <Show when={gw().running}>
                     <button
-                      class="btn-danger"
+                      class={styles.btnRed}
                       disabled={gwAction() !== null}
                       onClick={handleStop}
                     >
                       {gwAction() === "stopping" ? "Stopping..." : "Stop"}
                     </button>
                     <button
-                      class="btn-secondary"
+                      class={styles.btnGhost}
                       disabled={gwAction() !== null}
                       onClick={handleRestart}
                     >
@@ -187,91 +189,49 @@ export default function Dashboard() {
           </Show>
         </div>
 
-        {/* Agents summary card */}
-        <div class="card">
-          <h3>Agents</h3>
+        {/* Agents Count Card */}
+        <div class={styles.card}>
+          <div class={styles.cardHeader}>
+            <div class={styles.cardIconPurple}>
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="8" r="5" />
+                <path d="M20 21a8 8 0 1 0-16 0" />
+              </svg>
+            </div>
+            <span class={styles.cardTitle}>Agents</span>
+          </div>
           <Show
             when={config()}
-            fallback={<p style={{ color: "#8b949e" }}>Loading...</p>}
+            fallback={<div class={styles.cardMeta}>Loading...</div>}
           >
-            {(cfg) => {
-              const c = cfg() as Record<string, any>;
-              const count = Object.keys(c.agents?.agents ?? {}).length;
-              return (
-                <p style={{ "font-size": "14px", color: "#8b949e" }}>
-                  {count} agent{count !== 1 ? "s" : ""} configured
-                </p>
-              );
-            }}
+            <div class={styles.statValue}>{agentCount()}</div>
+            <div class={styles.statLabel}>
+              agent{agentCount() !== 1 ? "s" : ""} configured
+            </div>
+          </Show>
+        </div>
+
+        {/* Channels Count Card */}
+        <div class={styles.card}>
+          <div class={styles.cardHeader}>
+            <div class={styles.cardIconCyan}>
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+              </svg>
+            </div>
+            <span class={styles.cardTitle}>Channels</span>
+          </div>
+          <Show
+            when={config()}
+            fallback={<div class={styles.cardMeta}>Loading...</div>}
+          >
+            <div class={styles.statValue}>{channelCount()}</div>
+            <div class={styles.statLabel}>
+              channel{channelCount() !== 1 ? "s" : ""} enabled
+            </div>
           </Show>
         </div>
       </div>
-
-      <style>{`
-        .card {
-          background: #161b22;
-          border: 1px solid #30363d;
-          border-radius: 8px;
-          padding: 20px;
-        }
-        .card h3 {
-          font-size: 16px;
-          font-weight: 600;
-          margin-bottom: 12px;
-          color: #f0f6fc;
-        }
-        .btn-primary {
-          background: #238636;
-          color: #fff;
-          border: 1px solid #2ea043;
-          border-radius: 6px;
-          padding: 6px 16px;
-          font-size: 13px;
-          cursor: pointer;
-          font-weight: 500;
-        }
-        .btn-primary:hover:not(:disabled) {
-          background: #2ea043;
-        }
-        .btn-primary:disabled {
-          opacity: 0.6;
-          cursor: not-allowed;
-        }
-        .btn-danger {
-          background: #da3633;
-          color: #fff;
-          border: 1px solid #f85149;
-          border-radius: 6px;
-          padding: 6px 16px;
-          font-size: 13px;
-          cursor: pointer;
-          font-weight: 500;
-        }
-        .btn-danger:hover:not(:disabled) {
-          background: #f85149;
-        }
-        .btn-danger:disabled {
-          opacity: 0.6;
-          cursor: not-allowed;
-        }
-        .btn-secondary {
-          background: #21262d;
-          color: #c9d1d9;
-          border: 1px solid #30363d;
-          border-radius: 6px;
-          padding: 6px 16px;
-          font-size: 13px;
-          cursor: pointer;
-          font-weight: 500;
-        }
-        .btn-secondary:hover:not(:disabled) {
-          background: #30363d;
-        }
-        .btn-secondary:disabled {
-          opacity: 0.6;
-          cursor: not-allowed;
-        }
-      `}</style>
     </div>
   );
 }

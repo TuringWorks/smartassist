@@ -240,6 +240,24 @@ export function Toast(props: ToastProps) {
   );
 }
 
+// ── PageHeader ─────────────────────────────────────────────────
+
+interface PageHeaderProps {
+  title: string;
+  subtitle?: string;
+}
+
+export function PageHeader(props: PageHeaderProps) {
+  return (
+    <div class="page-header">
+      <h1 class="page-title">{props.title}</h1>
+      <Show when={props.subtitle}>
+        <p class="page-subtitle">{props.subtitle}</p>
+      </Show>
+    </div>
+  );
+}
+
 // ── Re-export styles for use in route pages ────────────────────
 
 export { styles };
