@@ -18,6 +18,7 @@ pub mod system;
 pub mod wizard;
 pub mod browser;
 pub mod canvas;
+pub mod channel;
 pub mod talk;
 
 use crate::methods::MethodRegistry;
@@ -60,6 +61,7 @@ pub use system::{
 pub use wizard::{WizardCancelHandler, WizardNextHandler, WizardStartHandler, WizardStatusHandler};
 pub use browser::{BrowserLaunchHandler, BrowserCloseHandler, BrowserExecuteHandler, BrowserListHandler};
 pub use canvas::{CanvasCreateHandler, CanvasDeleteHandler, CanvasExecuteHandler, CanvasListHandler, CanvasSubscribeHandler};
+pub use channel::{ChannelListHandler, ChannelHealthHandler};
 pub use talk::{
     TalkAudioHandler, TalkListHandler, TalkPttPressHandler, TalkPttReleaseHandler,
     TalkStartHandler, TalkStatusHandler, TalkStopHandler,
@@ -225,6 +227,14 @@ pub async fn register_all(registry: &MethodRegistry, context: HandlerContext) {
         .await;
     registry
         .register("send.poll", Arc::new(SendPollHandler::new(ctx.clone())))
+        .await;
+
+    // Channel methods
+    registry
+        .register("channel.list", Arc::new(ChannelListHandler::new(ctx.clone())))
+        .await;
+    registry
+        .register("channel.health", Arc::new(ChannelHealthHandler::new(ctx.clone())))
         .await;
 
     // System methods
