@@ -226,6 +226,137 @@ impl MethodHandler for ConfigSchemaHandler {
     }
 }
 
+/// Config reload method handler.
+pub struct ConfigReloadHandler {
+    context: Arc<HandlerContext>,
+}
+
+impl ConfigReloadHandler {
+    pub fn new(context: Arc<HandlerContext>) -> Self {
+        Self { context }
+    }
+}
+
+#[async_trait]
+impl MethodHandler for ConfigReloadHandler {
+    async fn call(&self, _params: Option<serde_json::Value>) -> Result<serde_json::Value> {
+        debug!("Config reload request");
+
+        let loaded = smartassist_core::config::Config::load_or_default();
+        let loaded_json = serde_json::to_value(&loaded)
+            .map_err(|e| GatewayError::Internal(format!("Failed to serialize config: {}", e)))?;
+
+        if let Some(ref config) = self.context.config {
+            let mut current = config.write().await;
+            *current = loaded_json.clone();
+        }
+
+        Ok(serde_json::json!({
+            "reloaded": true,
+        }))
+    }
+}
+
+/// Config diff method handler.
+pub struct ConfigDiffHandler {
+    context: Arc<HandlerContext>,
+}
+
+impl ConfigDiffHandler {
+    pub fn new(context: Arc<HandlerContext>) -> Self {
+        Self { context }
+    }
+}
+
+#[async_trait]
+impl MethodHandler for ConfigDiffHandler {
+    async fn call(&self, _params: Option<serde_json::Value>) -> Result<serde_json::Value> {
+        debug!("Config diff request");
+
+        let loaded = smartassist_core::config::Config::load_or_default();
+        let loaded_json = serde_json::to_value(&loaded)
+            .map_err(|e| GatewayError::Internal(format!("Failed to serialize config: {}", e)))?;
+
+        let current_json = if let Some(ref config) = self.context.config {
+            config.read().await.clone()
+        } else {
+            serde_json::Value::Null
+        };
+
+        let diff = json_diff(&current_json, &loaded_json);
+
+        Ok(serde_json::json!({
+            "changed": diff.changed,
+            "added": diff.added,
+            "removed": diff.removed,
+        }))
+    }
+}
+
+/// Simple diff result.
+struct DiffResult {
+    changed: Vec<String>,
+    added: Vec<String>,
+    removed: Vec<String>,
+}
+
+/// Compute a flat diff between two JSON objects using dot notation keys.
+fn json_diff(current: &serde_json::Value, loaded: &serde_json::Value) -> DiffResult {
+    let mut changed = Vec::new();
+    let mut added = Vec::new();
+    let mut removed = Vec::new();
+
+    let current_flat = flatten_json(current, "");
+    let loaded_flat = flatten_json(loaded, "");
+
+    for (key, value) in &loaded_flat {
+        match current_flat.get(key) {
+            Some(current_value) if current_value != value => {
+                changed.push(key.clone());
+            }
+            None => {
+                added.push(key.clone());
+            }
+            _ => {}
+        }
+    }
+
+    for key in current_flat.keys() {
+        if !loaded_flat.contains_key(key) {
+            removed.push(key.clone());
+        }
+    }
+
+    DiffResult {
+        changed,
+        added,
+        removed,
+    }
+}
+
+/// Flatten a JSON value into dot-notation keys.
+fn flatten_json(value: &serde_json::Value, prefix: &str) -> std::collections::HashMap<String, serde_json::Value> {
+    let mut result = std::collections::HashMap::new();
+    match value {
+        serde_json::Value::Object(map) => {
+            for (k, v) in map {
+                let key = if prefix.is_empty() {
+                    k.clone()
+                } else {
+                    format!("{}.{}", prefix, k)
+                };
+                result.extend(flatten_json(v, &key));
+            }
+        }
+        _ => {
+            if !prefix.is_empty() {
+                result.insert(prefix.to_string(), value.clone());
+            }
+        }
+    }
+    result
+}
+
 // Helper functions
 
 /// Get a nested value from JSON using dot notation.

@@ -28,7 +28,7 @@ use std::sync::Arc;
 
 pub use agent::{AgentHandler, AgentStreamHandler, AgentStopHandler, AgentStatusHandler};
 pub use chat::{ChatAbortHandler, ChatHandler, ChatHistoryHandler};
-pub use config::{ConfigGetHandler, ConfigPatchHandler, ConfigSchemaHandler, ConfigSetHandler};
+pub use config::{ConfigDiffHandler, ConfigGetHandler, ConfigPatchHandler, ConfigReloadHandler, ConfigSchemaHandler, ConfigSetHandler};
 pub use cron::{
     CronAddHandler, CronListHandler, CronRemoveHandler, CronRunHandler, CronRunsHandler,
     CronScheduler, CronStatusHandler, CronUpdateHandler, WakeHandler,
@@ -128,6 +128,12 @@ pub async fn register_all(registry: &MethodRegistry, context: HandlerContext) {
         .await;
     registry
         .register("config.schema", Arc::new(ConfigSchemaHandler::new(ctx.clone())))
+        .await;
+    registry
+        .register("config.reload", Arc::new(ConfigReloadHandler::new(ctx.clone())))
+        .await;
+    registry
+        .register("config.diff", Arc::new(ConfigDiffHandler::new(ctx.clone())))
         .await;
 
     // Node methods
