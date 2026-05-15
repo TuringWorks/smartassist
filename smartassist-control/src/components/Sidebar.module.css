@@ -1,6 +1,7 @@
 .sidebar {
   width: var(--sidebar-width);
   min-width: var(--sidebar-width);
+  height: 100%;
   background: var(--bg-sidebar);
   -webkit-backdrop-filter: blur(16px);
   backdrop-filter: blur(16px);
@@ -67,10 +68,12 @@
 
 .navGroup {
   padding: 10px 10px 4px;
-  flex: 1;
+  flex: 1 1 0%;
   overflow-y: auto;
   overflow-x: hidden;
   min-height: 0;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* ── Section Headers ───────────────────────────────────────── */

@@ -8701,6 +8701,7 @@ dependencies = [
  "bollard",
  "chromiumoxide",
  "chrono",
+ "futures",
  "mockall",
  "reqwest 0.11.27",
  "serde",
@@ -8909,6 +8910,7 @@ dependencies = [
  "smartassist-canvas",
  "smartassist-channels",
  "smartassist-core",
+ "smartassist-cron",
  "smartassist-providers",
  "smartassist-talk",
  "thiserror 1.0.69",
@@ -8926,12 +8928,15 @@ dependencies = [
 name = "smartassist-integration-tests"
 version = "0.0.0"
 dependencies = [
+ "futures",
+ "reqwest 0.11.27",
  "serde_json",
  "smartassist-cli",
  "smartassist-core",
  "smartassist-gateway",
  "tempfile",
  "tokio",
+ "tokio-tungstenite 0.21.0",
  "toml 0.8.23",
 ]
 

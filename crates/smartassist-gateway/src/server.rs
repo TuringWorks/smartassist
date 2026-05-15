@@ -211,6 +211,7 @@ pub struct ClientInfo {
 }
 
 /// The WebSocket gateway server.
+#[derive(Clone)]
 pub struct Gateway {
     /// Server state.
     state: Arc<GatewayState>,
@@ -337,6 +338,22 @@ impl Gateway {
         .await
         .map_err(|e| GatewayError::Internal(e.to_string()))?;
 
+        Ok(())
+    }
+
+    /// Run the gateway server with an externally-provided listener.
+    /// Useful for tests that need to bind to port 0.
+    pub async fn run_with_listener(
+        &self,
+        listener: tokio::net::TcpListener,
+    ) -> Result<()> {
+        let app = self.create_router();
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .map_err(|e| GatewayError::Internal(e.to_string()))?;
         Ok(())
     }
 
