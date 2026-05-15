@@ -12,6 +12,8 @@ use crate::traits::{
 };
 use crate::Result;
 use async_trait::async_trait;
+use reqwest;
+use serde_json::json;
 use smartassist_core::types::{
     ChannelCapabilities, ChannelFeatures, ChannelHealth, ChannelLimits, ChatType,
     HealthStatus, InboundMessage, MediaCapabilities, MessageTarget, OutboundMessage,
@@ -124,14 +126,71 @@ impl Channel for MattermostChannel {
 #[async_trait]
 impl ChannelSender for MattermostChannel {
     async fn send(&self, message: OutboundMessage) -> Result<SendResult> {
-        let msg_id = uuid::Uuid::new_v4().to_string();
+        if self.token.is_empty() {
+            return Err(ChannelError::Config(
+                "Mattermost token is not configured".to_string(),
+            ));
+        }
+
+        let channel_id = message.target.chat_id.clone();
+        if channel_id.is_empty() {
+            return Err(ChannelError::Config(
+                "Mattermost channel_id (chat_id) is not configured".to_string(),
+            ));
+        }
+
+        let url = format!(
+            "{}/api/v4/posts",
+            self.server_url.trim_end_matches('/')
+        );
+
+        let payload = json!({
+            "channel_id": channel_id,
+            "message": message.text,
+        });
+
+        let client = reqwest::Client::new();
+        let response = client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", self.token))
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| ChannelError::Channel {
+                channel: "mattermost".to_string(),
+                message: format!("HTTP error: {}", e),
+            })?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            return Err(ChannelError::Channel {
+                channel: "mattermost".to_string(),
+                message: format!("Mattermost API error {}: {}", status, body),
+            });
+        }
+
+        let response_body: serde_json::Value = response.json().await.map_err(|e| {
+            ChannelError::Channel {
+                channel: "mattermost".to_string(),
+                message: format!("Failed to parse response: {}", e),
+            }
+        })?;
+
+        let msg_id = response_body
+            .get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
         debug!(
-            "Mattermost send to {}: {} (msg_id: {})",
-            message.target.chat_id,
+            "Mattermost sent to {}: {} (post_id: {})",
+            channel_id,
             message.text,
             msg_id
         );
-        Ok(SendResult::with_chat(msg_id, message.target.chat_id))
+
+        Ok(SendResult::with_chat(msg_id, channel_id))
     }
 
     async fn send_with_attachments(
@@ -224,8 +283,25 @@ impl ChannelReceiver for MattermostChannel {
 #[async_trait]
 impl ChannelLifecycle for MattermostChannel {
     async fn connect(&self) -> Result<()> {
+        if self.server_url.is_empty() {
+            return Err(ChannelError::Config(
+                "Mattermost server_url is not configured".to_string(),
+            ));
+        }
+        if self.token.is_empty() {
+            return Err(ChannelError::Config(
+                "Mattermost token is not configured".to_string(),
+            ));
+        }
+
+        if let Err(e) = url::Url::parse(&self.server_url) {
+            return Err(ChannelError::Config(format!(
+                "Invalid Mattermost server_url: {}",
+                e
+            )));
+        }
+
         self.connected.store(true, Ordering::Relaxed);
-        
         info!("Mattermost channel connected: {}", self.instance_id);
         Ok(())
     }
@@ -243,21 +319,57 @@ impl ChannelLifecycle for MattermostChannel {
     }
 
     async fn health(&self) -> Result<ChannelHealth> {
-        let connected = self.connected.load(Ordering::Relaxed);
-        Ok(ChannelHealth {
-            status: if connected {
-                HealthStatus::Healthy
-            } else {
-                HealthStatus::Unhealthy
-            },
-            latency_ms: Some(0),
-            last_message_at: None,
-            error: if connected {
-                None
-            } else {
-                Some("Not connected".to_string())
-            },
-        })
+        let start = std::time::Instant::now();
+        let connected = self.is_connected();
+
+        if !connected {
+            return Ok(ChannelHealth {
+                status: HealthStatus::Unhealthy,
+                latency_ms: Some(0),
+                last_message_at: None,
+                error: Some("Not connected".to_string()),
+            });
+        }
+
+        let url = format!(
+            "{}/api/v4/system/ping",
+            self.server_url.trim_end_matches('/')
+        );
+        let client = reqwest::Client::new();
+        match client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", self.token))
+            .send()
+            .await
+        {
+            Ok(response) if response.status().is_success() => {
+                Ok(ChannelHealth {
+                    status: HealthStatus::Healthy,
+                    latency_ms: Some(start.elapsed().as_millis() as u64),
+                    last_message_at: None,
+                    error: None,
+                })
+            }
+            Ok(response) => {
+                Ok(ChannelHealth {
+                    status: HealthStatus::Degraded,
+                    latency_ms: Some(start.elapsed().as_millis() as u64),
+                    last_message_at: None,
+                    error: Some(format!(
+                        "Mattermost returned status {}",
+                        response.status()
+                    )),
+                })
+            }
+            Err(e) => {
+                Ok(ChannelHealth {
+                    status: HealthStatus::Unhealthy,
+                    latency_ms: Some(start.elapsed().as_millis() as u64),
+                    last_message_at: None,
+                    error: Some(format!("Health check request failed: {}", e)),
+                })
+            }
+        }
     }
 }
 
@@ -293,6 +405,9 @@ impl ChannelFactory for MattermostChannelFactory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+    use wiremock::matchers::{method, header};
 
     #[test]
     fn test_mattermost_channel_creation() {
@@ -325,7 +440,18 @@ mod tests {
 
     #[tokio::test]
     async fn test_mattermost_send_message() {
-        let channel = MattermostChannel::new("test_mm", "https://mm.example.com", "token123");
+        let mock_server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(header("Authorization", "Bearer token123"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": "post_abc123",
+                "channel_id": "channel:town-square",
+                "message": "Hello Mattermost"
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let channel = MattermostChannel::new("test_mm", &mock_server.uri(), "token123");
         let target = MessageTarget {
             chat_id: "channel:town-square".to_string(),
             thread_id: None,
@@ -341,5 +467,103 @@ mod tests {
 
         let result = channel.send(message).await.unwrap();
         assert!(!result.message_id.is_empty());
+        assert_eq!(result.message_id, "post_abc123");
+        assert_eq!(result.chat_id, "channel:town-square");
+    }
+
+    #[tokio::test]
+    async fn test_mattermost_health_check() {
+        let mock_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(header("Authorization", "Bearer token123"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "status": "OK",
+                "version": "9.0.0"
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let channel = MattermostChannel::new("test_mm", &mock_server.uri(), "token123");
+        channel.connect().await.unwrap();
+
+        let health = channel.health().await.unwrap();
+        assert_eq!(health.status, HealthStatus::Healthy);
+        assert!(health.latency_ms.unwrap() > 0);
+        assert!(health.error.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_mattermost_connect_requires_url() {
+        let channel = MattermostChannel::new("test_mm", "", "token123");
+        let err = channel.connect().await.unwrap_err();
+        assert!(err.to_string().contains("server_url is not configured"));
+    }
+
+    #[tokio::test]
+    async fn test_mattermost_connect_requires_token() {
+        let channel = MattermostChannel::new("test_mm", "https://mm.example.com", "");
+        let err = channel.connect().await.unwrap_err();
+        assert!(err.to_string().contains("token is not configured"));
+    }
+
+    #[tokio::test]
+    async fn test_mattermost_send_requires_token() {
+        let channel = MattermostChannel::new("test_mm", "https://mm.example.com", "");
+        let target = MessageTarget {
+            chat_id: "channel:town-square".to_string(),
+            thread_id: None,
+        };
+        let message = OutboundMessage {
+            target,
+            text: "Hello".to_string(),
+            media: vec![],
+            mentions: vec![],
+            reply_to: None,
+            options: Default::default(),
+        };
+
+        let err = channel.send(message).await.unwrap_err();
+        assert!(err.to_string().contains("token is not configured"));
+    }
+
+    #[tokio::test]
+    async fn test_mattermost_send_requires_channel_id() {
+        let channel = MattermostChannel::new("test_mm", "https://mm.example.com", "token123");
+        let target = MessageTarget {
+            chat_id: "".to_string(),
+            thread_id: None,
+        };
+        let message = OutboundMessage {
+            target,
+            text: "Hello".to_string(),
+            media: vec![],
+            mentions: vec![],
+            reply_to: None,
+            options: Default::default(),
+        };
+
+        let err = channel.send(message).await.unwrap_err();
+        assert!(err.to_string().contains("channel_id"));
+    }
+
+    #[test]
+    fn test_mattermost_from_config() {
+        let mut options = HashMap::new();
+        options.insert(
+            "server_url".to_string(),
+            serde_json::json!("https://mm.example.com"),
+        );
+        options.insert("token".to_string(), serde_json::json!("secret"));
+
+        let config = ChannelConfig {
+            channel_type: "mattermost".to_string(),
+            instance_id: "mm-1".to_string(),
+            account_id: "acct".to_string(),
+            enabled: true,
+            options,
+        };
+
+        let channel = MattermostChannel::from_config(config);
+        assert_eq!(channel.instance_id(), "mm-1");
     }
 }

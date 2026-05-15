@@ -65,3 +65,17 @@
 .saveButton {
   margin-top: 8px;
 }
+
+.customKeySection {
+  background: var(--bg-card);
+  border: 1px dashed var(--border-focus);
+  border-radius: var(--radius-sm);
+  padding: 16px;
+  margin-top: 24px;
+}
+
+.customKeyHeader {
+  color: var(--text-heading);
+  margin-bottom: 8px;
+  font-size: 16px;
+}

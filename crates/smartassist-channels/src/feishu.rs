@@ -12,6 +12,8 @@ use crate::traits::{
 };
 use crate::Result;
 use async_trait::async_trait;
+use reqwest;
+use serde_json::json;
 use smartassist_core::types::{
     ChannelCapabilities, ChannelFeatures, ChannelHealth, ChannelLimits, ChatType,
     HealthStatus, InboundMessage, MediaCapabilities, MessageTarget, OutboundMessage,
@@ -118,13 +120,65 @@ impl Channel for FeishuChannel {
 #[async_trait]
 impl ChannelSender for FeishuChannel {
     async fn send(&self, message: OutboundMessage) -> Result<SendResult> {
-        let msg_id = uuid::Uuid::new_v4().to_string();
+        if self.webhook_url.is_empty() {
+            return Err(ChannelError::Config(
+                "Feishu webhook_url is not configured".to_string(),
+            ));
+        }
+
+        let payload = json!({
+            "msg_type": "text",
+            "content": {
+                "text": message.text,
+            },
+        });
+
+        let client = reqwest::Client::new();
+        let response = client
+            .post(&self.webhook_url)
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| ChannelError::Channel {
+                channel: "feishu".to_string(),
+                message: format!("HTTP error: {}", e),
+            })?;
+
+        let status = response.status();
+        let response_body: serde_json::Value = response.json().await.map_err(|e| {
+            ChannelError::Channel {
+                channel: "feishu".to_string(),
+                message: format!("Failed to parse response: {}", e),
+            }
+        })?;
+
+        // Feishu returns code 0 on success even for HTTP 200
+        let code = response_body.get("code").and_then(|v| v.as_i64()).unwrap_or(-1);
+        if !status.is_success() || code != 0 {
+            let msg = response_body
+                .get("msg")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown error");
+            return Err(ChannelError::Channel {
+                channel: "feishu".to_string(),
+                message: format!("Feishu API error (HTTP {} / code {}): {}", status, code, msg),
+            });
+        }
+
+        let msg_id = response_body
+            .get("data")
+            .and_then(|v| v.get("message_id"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
         debug!(
-            "Feishu send to {}: {} (msg_id: {})",
+            "Feishu sent to {}: {} (msg_id: {})",
             message.target.chat_id,
             message.text,
             msg_id
         );
+
         Ok(SendResult::with_chat(msg_id, message.target.chat_id))
     }
 
@@ -208,8 +262,20 @@ impl ChannelReceiver for FeishuChannel {
 #[async_trait]
 impl ChannelLifecycle for FeishuChannel {
     async fn connect(&self) -> Result<()> {
+        if self.webhook_url.is_empty() {
+            return Err(ChannelError::Config(
+                "Feishu webhook_url is not configured".to_string(),
+            ));
+        }
+
+        if let Err(e) = url::Url::parse(&self.webhook_url) {
+            return Err(ChannelError::Config(format!(
+                "Invalid Feishu webhook_url: {}",
+                e
+            )));
+        }
+
         self.connected.store(true, Ordering::Relaxed);
-        
         info!("Feishu channel connected: {}", self.instance_id);
         Ok(())
     }
@@ -227,21 +293,51 @@ impl ChannelLifecycle for FeishuChannel {
     }
 
     async fn health(&self) -> Result<ChannelHealth> {
-        let connected = self.connected.load(Ordering::Relaxed);
-        Ok(ChannelHealth {
-            status: if connected {
-                HealthStatus::Healthy
-            } else {
-                HealthStatus::Unhealthy
-            },
-            latency_ms: Some(0),
-            last_message_at: None,
-            error: if connected {
-                None
-            } else {
-                Some("Not connected".to_string())
-            },
-        })
+        let start = std::time::Instant::now();
+        let connected = self.is_connected();
+
+        if !connected {
+            return Ok(ChannelHealth {
+                status: HealthStatus::Unhealthy,
+                latency_ms: Some(0),
+                last_message_at: None,
+                error: Some("Not connected".to_string()),
+            });
+        }
+
+        // Lightweight HEAD to the webhook URL to check reachability
+        let client = reqwest::Client::new();
+        match client.head(&self.webhook_url).send().await {
+            Ok(response) if response.status().is_success() || response.status().as_u16() == 405 => {
+                // 405 Method Not Allowed is expected for HEAD on some webhook endpoints,
+                // which still proves the endpoint is reachable.
+                Ok(ChannelHealth {
+                    status: HealthStatus::Healthy,
+                    latency_ms: Some(start.elapsed().as_millis() as u64),
+                    last_message_at: None,
+                    error: None,
+                })
+            }
+            Ok(response) => {
+                Ok(ChannelHealth {
+                    status: HealthStatus::Degraded,
+                    latency_ms: Some(start.elapsed().as_millis() as u64),
+                    last_message_at: None,
+                    error: Some(format!(
+                        "Feishu webhook returned status {}",
+                        response.status()
+                    )),
+                })
+            }
+            Err(e) => {
+                Ok(ChannelHealth {
+                    status: HealthStatus::Unhealthy,
+                    latency_ms: Some(start.elapsed().as_millis() as u64),
+                    last_message_at: None,
+                    error: Some(format!("Health check request failed: {}", e)),
+                })
+            }
+        }
     }
 }
 
@@ -277,6 +373,9 @@ impl ChannelFactory for FeishuChannelFactory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+    use wiremock::matchers::method;
 
     #[test]
     fn test_feishu_channel_creation() {
@@ -309,7 +408,19 @@ mod tests {
 
     #[tokio::test]
     async fn test_feishu_send_message() {
-        let channel = FeishuChannel::new("test_feishu", "https://open.feishu.cn/open-apis/bot/v2/hook/XXX");
+        let mock_server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "code": 0,
+                "msg": "ok",
+                "data": {
+                    "message_id": "om_abc123"
+                }
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let channel = FeishuChannel::new("test_feishu", &mock_server.uri());
         let target = MessageTarget {
             chat_id: "oc_123".to_string(),
             thread_id: None,
@@ -325,5 +436,109 @@ mod tests {
 
         let result = channel.send(message).await.unwrap();
         assert!(!result.message_id.is_empty());
+        assert_eq!(result.message_id, "om_abc123");
+        assert_eq!(result.chat_id, "oc_123");
+    }
+
+    #[tokio::test]
+    async fn test_feishu_send_error_response() {
+        let mock_server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "code": 9499,
+                "msg": "bad webhook token"
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let channel = FeishuChannel::new("test_feishu", &mock_server.uri());
+        let target = MessageTarget {
+            chat_id: "oc_123".to_string(),
+            thread_id: None,
+        };
+        let message = OutboundMessage {
+            target,
+            text: "Hello Feishu".to_string(),
+            media: vec![],
+            mentions: vec![],
+            reply_to: None,
+            options: Default::default(),
+        };
+
+        let err = channel.send(message).await.unwrap_err();
+        assert!(err.to_string().contains("bad webhook token"));
+    }
+
+    #[tokio::test]
+    async fn test_feishu_health_check() {
+        let mock_server = MockServer::start().await;
+        Mock::given(method("HEAD"))
+            .respond_with(ResponseTemplate::new(405))
+            .mount(&mock_server)
+            .await;
+
+        let channel = FeishuChannel::new("test_feishu", &mock_server.uri());
+        channel.connect().await.unwrap();
+
+        let health = channel.health().await.unwrap();
+        assert_eq!(health.status, HealthStatus::Healthy);
+        assert!(health.latency_ms.unwrap() > 0);
+        assert!(health.error.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_feishu_connect_requires_webhook_url() {
+        let channel = FeishuChannel::new("test_feishu", "");
+        let err = channel.connect().await.unwrap_err();
+        assert!(err.to_string().contains("webhook_url is not configured"));
+    }
+
+    #[tokio::test]
+    async fn test_feishu_send_requires_webhook_url() {
+        let channel = FeishuChannel::new("test_feishu", "");
+        let target = MessageTarget {
+            chat_id: "oc_123".to_string(),
+            thread_id: None,
+        };
+        let message = OutboundMessage {
+            target,
+            text: "Hello".to_string(),
+            media: vec![],
+            mentions: vec![],
+            reply_to: None,
+            options: Default::default(),
+        };
+
+        let err = channel.send(message).await.unwrap_err();
+        assert!(err.to_string().contains("webhook_url is not configured"));
+    }
+
+    #[tokio::test]
+    async fn test_feishu_health_when_not_connected() {
+        let channel = FeishuChannel::new("test_feishu", "https://open.feishu.cn/open-apis/bot/v2/hook/XXX");
+        let health = channel.health().await.unwrap();
+        assert_eq!(health.status, HealthStatus::Unhealthy);
+        assert!(health.error.unwrap().contains("Not connected"));
+    }
+
+    #[test]
+    fn test_feishu_from_config() {
+        let mut options = HashMap::new();
+        options.insert(
+            "webhook_url".to_string(),
+            serde_json::json!("https://open.feishu.cn/open-apis/bot/v2/hook/XXX"),
+        );
+        options.insert("app_id".to_string(), serde_json::json!("cli_abc"));
+
+        let config = ChannelConfig {
+            channel_type: "feishu".to_string(),
+            instance_id: "feishu-1".to_string(),
+            account_id: "acct".to_string(),
+            enabled: true,
+            options,
+        };
+
+        let channel = FeishuChannel::from_config(config);
+        assert_eq!(channel.instance_id(), "feishu-1");
     }
 }

@@ -12,6 +12,8 @@ use crate::traits::{
 };
 use crate::Result;
 use async_trait::async_trait;
+use reqwest;
+use serde_json::json;
 use smartassist_core::types::{
     ChannelCapabilities, ChannelFeatures, ChannelHealth, ChannelLimits, ChatType,
     HealthStatus, InboundMessage, MediaCapabilities, MessageTarget, OutboundMessage,
@@ -26,6 +28,7 @@ pub struct ZaloChannel {
     instance_id: String,
     oa_id: String,
     access_token: String,
+    api_base: String,
     connected: Arc<AtomicBool>,
     message_tx: mpsc::Sender<InboundMessage>,
     message_rx: Arc<RwLock<mpsc::Receiver<InboundMessage>>>,
@@ -53,11 +56,18 @@ impl ZaloChannel {
             instance_id: instance_id.into(),
             oa_id: oa_id.into(),
             access_token: access_token.into(),
+            api_base: "https://openapi.zalo.me".to_string(),
             connected: Arc::new(AtomicBool::new(false)),
             message_tx,
             message_rx: Arc::new(RwLock::new(message_rx)),
             handler: Arc::new(RwLock::new(None)),
         }
+    }
+
+    /// Override the API base URL (used primarily for testing).
+    pub fn with_api_base(mut self, api_base: impl Into<String>) -> Self {
+        self.api_base = api_base.into();
+        self
     }
 
     /// Create from configuration.
@@ -74,7 +84,11 @@ impl ZaloChannel {
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
-        Self::new(config.instance_id, oa_id, access_token)
+        let mut channel = Self::new(config.instance_id, oa_id, access_token);
+        if let Some(api_base) = config.options.get("api_base").and_then(|v| v.as_str()) {
+            channel.api_base = api_base.to_string();
+        }
+        channel
     }
 }
 
@@ -124,14 +138,80 @@ impl Channel for ZaloChannel {
 #[async_trait]
 impl ChannelSender for ZaloChannel {
     async fn send(&self, message: OutboundMessage) -> Result<SendResult> {
-        let msg_id = uuid::Uuid::new_v4().to_string();
+        if self.access_token.is_empty() {
+            return Err(ChannelError::Config(
+                "Zalo access_token is not configured".to_string(),
+            ));
+        }
+
+        let user_id = message.target.chat_id.clone();
+        if user_id.is_empty() {
+            return Err(ChannelError::Config(
+                "Zalo user_id (chat_id) is not configured".to_string(),
+            ));
+        }
+
+        let url = format!(
+            "{}/v3.0/oa/message/cs?access_token={}",
+            self.api_base.trim_end_matches('/'),
+            urlencoding::encode(&self.access_token)
+        );
+
+        let payload = json!({
+            "recipient": {
+                "user_id": user_id,
+            },
+            "message": {
+                "text": message.text,
+            },
+        });
+
+        let client = reqwest::Client::new();
+        let response = client
+            .post(&url)
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| ChannelError::Channel {
+                channel: "zalo".to_string(),
+                message: format!("HTTP error: {}", e),
+            })?;
+
+        let status = response.status();
+        let response_body: serde_json::Value = response.json().await.map_err(|e| {
+            ChannelError::Channel {
+                channel: "zalo".to_string(),
+                message: format!("Failed to parse response: {}", e),
+            }
+        })?;
+
+        let error_code = response_body.get("error").and_then(|v| v.as_i64()).unwrap_or(-1);
+        if !status.is_success() || error_code != 0 {
+            let msg = response_body
+                .get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown error");
+            return Err(ChannelError::Channel {
+                channel: "zalo".to_string(),
+                message: format!("Zalo API error (HTTP {} / error {}): {}", status, error_code, msg),
+            });
+        }
+
+        let msg_id = response_body
+            .get("data")
+            .and_then(|v| v.get("message_id"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
         debug!(
-            "Zalo send to {}: {} (msg_id: {})",
-            message.target.chat_id,
+            "Zalo sent to {}: {} (msg_id: {})",
+            user_id,
             message.text,
             msg_id
         );
-        Ok(SendResult::with_chat(msg_id, message.target.chat_id))
+
+        Ok(SendResult::with_chat(msg_id, user_id))
     }
 
     async fn send_with_attachments(
@@ -210,8 +290,18 @@ impl ChannelReceiver for ZaloChannel {
 #[async_trait]
 impl ChannelLifecycle for ZaloChannel {
     async fn connect(&self) -> Result<()> {
+        if self.oa_id.is_empty() {
+            return Err(ChannelError::Config(
+                "Zalo oa_id is not configured".to_string(),
+            ));
+        }
+        if self.access_token.is_empty() {
+            return Err(ChannelError::Config(
+                "Zalo access_token is not configured".to_string(),
+            ));
+        }
+
         self.connected.store(true, Ordering::Relaxed);
-        
         info!("Zalo channel connected: {}", self.instance_id);
         Ok(())
     }
@@ -229,21 +319,53 @@ impl ChannelLifecycle for ZaloChannel {
     }
 
     async fn health(&self) -> Result<ChannelHealth> {
-        let connected = self.connected.load(Ordering::Relaxed);
-        Ok(ChannelHealth {
-            status: if connected {
-                HealthStatus::Healthy
-            } else {
-                HealthStatus::Unhealthy
-            },
-            latency_ms: Some(0),
-            last_message_at: None,
-            error: if connected {
-                None
-            } else {
-                Some("Not connected".to_string())
-            },
-        })
+        let start = std::time::Instant::now();
+        let connected = self.is_connected();
+
+        if !connected {
+            return Ok(ChannelHealth {
+                status: HealthStatus::Unhealthy,
+                latency_ms: Some(0),
+                last_message_at: None,
+                error: Some("Not connected".to_string()),
+            });
+        }
+
+        let url = format!(
+            "{}/v3.0/oa/getoa?access_token={}",
+            self.api_base.trim_end_matches('/'),
+            urlencoding::encode(&self.access_token)
+        );
+        let client = reqwest::Client::new();
+        match client.get(&url).send().await {
+            Ok(response) if response.status().is_success() => {
+                Ok(ChannelHealth {
+                    status: HealthStatus::Healthy,
+                    latency_ms: Some(start.elapsed().as_millis() as u64),
+                    last_message_at: None,
+                    error: None,
+                })
+            }
+            Ok(response) => {
+                Ok(ChannelHealth {
+                    status: HealthStatus::Degraded,
+                    latency_ms: Some(start.elapsed().as_millis() as u64),
+                    last_message_at: None,
+                    error: Some(format!(
+                        "Zalo returned status {}",
+                        response.status()
+                    )),
+                })
+            }
+            Err(e) => {
+                Ok(ChannelHealth {
+                    status: HealthStatus::Unhealthy,
+                    latency_ms: Some(start.elapsed().as_millis() as u64),
+                    last_message_at: None,
+                    error: Some(format!("Health check request failed: {}", e)),
+                })
+            }
+        }
     }
 }
 
@@ -254,6 +376,7 @@ impl Clone for ZaloChannel {
             instance_id: self.instance_id.clone(),
             oa_id: self.oa_id.clone(),
             access_token: self.access_token.clone(),
+            api_base: self.api_base.clone(),
             connected: self.connected.clone(),
             message_tx,
             message_rx: Arc::new(RwLock::new(message_rx)),
@@ -279,6 +402,9 @@ impl ChannelFactory for ZaloChannelFactory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+    use wiremock::matchers::{method, path, query_param};
 
     #[test]
     fn test_zalo_channel_creation() {
@@ -311,7 +437,22 @@ mod tests {
 
     #[tokio::test]
     async fn test_zalo_send_message() {
-        let channel = ZaloChannel::new("test_zalo", "oa_123", "token123");
+        let mock_server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v3.0/oa/message/cs"))
+            .and(query_param("access_token", "token123"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "data": {
+                    "message_id": "zalo_msg_123"
+                },
+                "error": 0,
+                "message": "Success"
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let channel = ZaloChannel::new("test_zalo", "oa_123", "token123")
+            .with_api_base(&mock_server.uri());
         let target = MessageTarget {
             chat_id: "user_456".to_string(),
             thread_id: None,
@@ -327,6 +468,118 @@ mod tests {
 
         let result = channel.send(message).await.unwrap();
         assert!(!result.message_id.is_empty());
+        assert_eq!(result.message_id, "zalo_msg_123");
+        assert_eq!(result.chat_id, "user_456");
+    }
+
+    #[tokio::test]
+    async fn test_zalo_send_error_response() {
+        let mock_server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v3.0/oa/message/cs"))
+            .and(query_param("access_token", "token123"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "error": -201,
+                "message": "Invalid access token"
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let channel = ZaloChannel::new("test_zalo", "oa_123", "token123")
+            .with_api_base(&mock_server.uri());
+        let target = MessageTarget {
+            chat_id: "user_456".to_string(),
+            thread_id: None,
+        };
+        let message = OutboundMessage {
+            target,
+            text: "Hello Zalo".to_string(),
+            media: vec![],
+            mentions: vec![],
+            reply_to: None,
+            options: Default::default(),
+        };
+
+        let err = channel.send(message).await.unwrap_err();
+        assert!(err.to_string().contains("Invalid access token"));
+    }
+
+    #[tokio::test]
+    async fn test_zalo_health_check() {
+        let mock_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v3.0/oa/getoa"))
+            .and(query_param("access_token", "token123"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "data": { "oa_id": "oa_123" },
+                "error": 0,
+                "message": "Success"
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let channel = ZaloChannel::new("test_zalo", "oa_123", "token123")
+            .with_api_base(&mock_server.uri());
+        channel.connect().await.unwrap();
+
+        let health = channel.health().await.unwrap();
+        assert_eq!(health.status, HealthStatus::Healthy);
+        assert!(health.latency_ms.unwrap() > 0);
+        assert!(health.error.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_zalo_connect_requires_oa_id() {
+        let channel = ZaloChannel::new("test_zalo", "", "token123");
+        let err = channel.connect().await.unwrap_err();
+        assert!(err.to_string().contains("oa_id is not configured"));
+    }
+
+    #[tokio::test]
+    async fn test_zalo_connect_requires_access_token() {
+        let channel = ZaloChannel::new("test_zalo", "oa_123", "");
+        let err = channel.connect().await.unwrap_err();
+        assert!(err.to_string().contains("access_token is not configured"));
+    }
+
+    #[tokio::test]
+    async fn test_zalo_send_requires_access_token() {
+        let channel = ZaloChannel::new("test_zalo", "oa_123", "");
+        let target = MessageTarget {
+            chat_id: "user_456".to_string(),
+            thread_id: None,
+        };
+        let message = OutboundMessage {
+            target,
+            text: "Hello".to_string(),
+            media: vec![],
+            mentions: vec![],
+            reply_to: None,
+            options: Default::default(),
+        };
+
+        let err = channel.send(message).await.unwrap_err();
+        assert!(err.to_string().contains("access_token is not configured"));
+    }
+
+    #[tokio::test]
+    async fn test_zalo_send_requires_user_id() {
+        let channel = ZaloChannel::new("test_zalo", "oa_123", "token123");
+        let target = MessageTarget {
+            chat_id: "".to_string(),
+            thread_id: None,
+        };
+        let message = OutboundMessage {
+            target,
+            text: "Hello".to_string(),
+            media: vec![],
+            mentions: vec![],
+            reply_to: None,
+            options: Default::default(),
+        };
+
+        let err = channel.send(message).await.unwrap_err();
+        assert!(err.to_string().contains("user_id"));
     }
 
     #[tokio::test]
@@ -337,5 +590,24 @@ mod tests {
         assert!(channel.edit(&msg_ref, "new").await.is_err());
         assert!(channel.delete(&msg_ref).await.is_err());
         assert!(channel.react(&msg_ref, "👍").await.is_err());
+    }
+
+    #[test]
+    fn test_zalo_from_config() {
+        let mut options = HashMap::new();
+        options.insert("oa_id".to_string(), serde_json::json!("oa_123"));
+        options.insert("access_token".to_string(), serde_json::json!("secret"));
+        options.insert("api_base".to_string(), serde_json::json!("https://custom.zalo.api"));
+
+        let config = ChannelConfig {
+            channel_type: "zalo".to_string(),
+            instance_id: "zalo-1".to_string(),
+            account_id: "acct".to_string(),
+            enabled: true,
+            options,
+        };
+
+        let channel = ZaloChannel::from_config(config);
+        assert_eq!(channel.instance_id(), "zalo-1");
     }
 }

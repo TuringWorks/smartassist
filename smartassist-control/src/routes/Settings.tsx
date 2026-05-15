@@ -3,6 +3,7 @@ import {
   Section,
   EnumSelect,
   SecretInput,
+  TextInput,
   PageHeader,
   Toast,
   styles as formStyles,
@@ -26,6 +27,10 @@ export default function Settings() {
   const [secrets, { refetch }] = createResource(listSecrets);
   
   const [editingSecret, setEditingSecret] = createSignal<string | null>(null);
+  
+  // Custom API Key State
+  const [customKeyName, setCustomKeyName] = createSignal("");
+  const [customKeyValue, setCustomKeyValue] = createSignal("");
 
   const showToast = (message: string, type: "success" | "error" = "success") => {
     setToast({ message, type });
@@ -42,6 +47,8 @@ export default function Settings() {
       await setSecret(name, value);
       showToast(`Secret '${name}' saved successfully`);
       setEditingSecret(null);
+      setCustomKeyName("");
+      setCustomKeyValue("");
       refetch();
     } catch (e: any) {
       showToast(`Failed to save secret: ${e.toString()}`, "error");
@@ -92,13 +99,20 @@ export default function Settings() {
         
         <Show when={secrets()}>
           <div class={styles.providerList}>
-            <For each={[
-              { id: "openai_api_key", label: "OpenAI API Key", prefix: "sk-" },
-              { id: "anthropic_api_key", label: "Anthropic API Key", prefix: "sk-ant-" },
-              { id: "google_api_key", label: "Google Gemini API Key", prefix: "AIza" },
-              { id: "groq_api_key", label: "Groq API Key", prefix: "gsk_" },
-              { id: "together_api_key", label: "Together AI API Key", prefix: "" },
-            ]}>
+            <For each={(() => {
+              const base = [
+                { id: "openai_api_key", label: "OpenAI API Key", prefix: "sk-" },
+                { id: "anthropic_api_key", label: "Anthropic API Key", prefix: "sk-ant-" },
+                { id: "google_api_key", label: "Google Gemini API Key", prefix: "AIza" },
+                { id: "groq_api_key", label: "Groq API Key", prefix: "gsk_" },
+                { id: "together_api_key", label: "Together AI API Key", prefix: "" },
+              ];
+              const existingIds = new Set(base.map(p => p.id));
+              const custom = (secrets() || [])
+                .filter(s => !existingIds.has(s))
+                .map(s => ({ id: s, label: s, prefix: "" }));
+              return [...base, ...custom];
+            })()}>
               {(provider) => {
                 const isSet = () => secrets()?.includes(provider.id) ?? false;
                 const isEditing = () => editingSecret() === provider.id;
@@ -167,6 +181,30 @@ export default function Settings() {
             </For>
           </div>
         </Show>
+
+        <div class={styles.customKeySection}>
+          <h3 class={styles.customKeyHeader}>Add Custom API Key</h3>
+          <p class={styles.description}>Add credentials for other providers (e.g. `deepseek_api_key`).</p>
+          <TextInput
+            label="Provider Secret Name"
+            value={customKeyName()}
+            onChange={setCustomKeyName}
+            placeholder="e.g. xai_api_key"
+          />
+          <SecretInput
+            label="API Key"
+            value={customKeyValue()}
+            onChange={setCustomKeyValue}
+            placeholder="Enter API Key"
+          />
+          <button
+            class={`${formStyles.btnPrimary} ${styles.saveButton}`}
+            disabled={!customKeyName() || !customKeyValue()}
+            onClick={() => handleSaveSecret(customKeyName(), customKeyValue())}
+          >
+            Save Custom API Key
+          </button>
+        </div>
       </Section>
 
       <Show when={toast()}>

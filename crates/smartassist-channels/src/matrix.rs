@@ -1,7 +1,7 @@
 //! Matrix channel implementation.
 //!
 //! Provides a Matrix client channel using the HTTP-based Client-Server API.
-//! This is a lightweight stub; a full implementation would use matrix-sdk.
+//! Uses reqwest for HTTP transport; a full implementation may integrate matrix-sdk.
 
 #![cfg(feature = "matrix")]
 
