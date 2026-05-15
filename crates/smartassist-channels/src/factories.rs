@@ -14,7 +14,7 @@ use std::sync::Arc;
 /// Each factory is only registered if its corresponding Cargo feature is enabled.
 /// This allows the gateway (or any binary) to dynamically create channels from
 /// configuration without hard-coding every channel type.
-pub async fn register_default_factories(manager: &ChannelManager) {
+pub async fn register_default_factories(_manager: &ChannelManager) {
     #[cfg(feature = "telegram")]
     manager
         .register_factory(Arc::new(crate::telegram::TelegramChannelFactory) as Arc<dyn ChannelFactory>)

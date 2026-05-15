@@ -1,0 +1,201 @@
+{
+  "main": {
+    "id": "e81565cd745eb78d",
+    "type": "split",
+    "children": [
+      {
+        "id": "5a594e2640d52788",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "aae75026568137cc",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "tests/bdd/README.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "README"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "763b235ecfe65656",
+    "type": "split",
+    "children": [
+      {
+        "id": "a2ff763e6b7baa12",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "63929d6572fe3a72",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "e6bed09b7a1fa35c",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "6b7b47ff90849167",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "9fa4310264799bff",
+    "type": "split",
+    "children": [
+      {
+        "id": "159b9721803201d1",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "27ce63ff2432a31f",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "tests/bdd/README.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks for README"
+            }
+          },
+          {
+            "id": "7467e029de4e65fe",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "tests/bdd/README.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links from README"
+            }
+          },
+          {
+            "id": "1d4c9c713d043a3b",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "4521d6a892ac4b44",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "All properties"
+            }
+          },
+          {
+            "id": "358bce580197ce36",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "tests/bdd/README.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Outline of README"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false,
+      "bases:Create new base": false
+    }
+  },
+  "active": "63929d6572fe3a72",
+  "lastOpenFiles": [
+    "target/debug/deps/cucumber-e898a6ff3d8d8b63.c2j4lf6b3e5cplni15cuh20l4.0zhnlb5.rcgu.o",
+    "target/debug/deps/cucumber-e898a6ff3d8d8b63.b6qhvfjfgkdxhgd85yxzr176i.0zhnlb5.rcgu.o",
+    "target/debug/deps/cucumber-e898a6ff3d8d8b63.7fcyzoir8rg3n1m24xp6jvj9w.0zhnlb5.rcgu.o",
+    "target/debug/deps/cucumber-e898a6ff3d8d8b63.4q4erelatqxrlcmeck38rt0nm.0zhnlb5.rcgu.o",
+    "target/debug/deps/cucumber-e898a6ff3d8d8b63.3a3s92a4tjj8vvyz1uu6yj8el.0zhnlb5.rcgu.o",
+    "target/debug/deps/cucumber-e898a6ff3d8d8b63.0woqfraszq53c6pmbx4lt90fg.0zhnlb5.rcgu.o",
+    "target/debug/deps/cucumber-e898a6ff3d8d8b63.0z7m534e1r2a7cfgv9wj6ianq.0zhnlb5.rcgu.o",
+    "target/debug/deps/cucumber-e898a6ff3d8d8b63.azpzalr0ljcfuqpba7yiqft52.0zhnlb5.rcgu.o",
+    "target/debug/deps/cucumber-e898a6ff3d8d8b63.6b8n1t3vtb7ptencyf53webfd.0zhnlb5.rcgu.o",
+    "target/debug/deps/cucumber-e898a6ff3d8d8b63.4ldnsz1dbt5ib35gdwxmkax7g.0zhnlb5.rcgu.o",
+    "target/debug/deps/cucumber-e898a6ff3d8d8b63.9gxkpi7p12dcbxomd688gczh8.0zhnlb5.rcgu.o",
+    "README.md"
+  ]
+}

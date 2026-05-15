@@ -14,7 +14,7 @@ use crate::traits::{Channel, ChannelConfig, ChannelFactory, SendResult};
 use crate::Result;
 use async_trait::async_trait;
 use smartassist_core::types::{
-    AgentId, ChannelHealth, InboundMessage, MessageTarget, OutboundMessage,
+    AgentId, ChannelHealth, HealthStatus, InboundMessage, MessageTarget, OutboundMessage,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -270,6 +270,9 @@ impl ChannelManager {
         // Start delivery processing
         self.start_delivery_processing().await?;
 
+        // Start health polling
+        self.start_health_polling().await?;
+
         *running = true;
         info!("Channel manager started");
 
@@ -410,6 +413,73 @@ impl ChannelManager {
                 }
 
                 tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+            }
+        });
+
+        Ok(())
+    }
+
+    /// Start a background health polling loop.
+    ///
+    /// Every 30 seconds, checks the health of all registered channels.
+    /// Unhealthy channels trigger an automatic reconnect attempt.
+    async fn start_health_polling(&self) -> Result<()> {
+        let registry = self.registry.clone();
+        let running = self.running.clone();
+        let interval = tokio::time::Duration::from_secs(30);
+
+        tokio::spawn(async move {
+            info!("Starting health polling loop (interval: {:?})", interval);
+
+            loop {
+                tokio::time::sleep(interval).await;
+
+                // Check if still running
+                if !*running.read().await {
+                    break;
+                }
+
+                let health_map = registry.health_check().await;
+                for (id, health) in health_map {
+                    match health.status {
+                        HealthStatus::Healthy => {
+                            debug!(
+                                "Channel {} is healthy ({}ms)",
+                                id,
+                                health.latency_ms.unwrap_or(0)
+                            );
+                        }
+                        HealthStatus::Degraded => {
+                            warn!(
+                                "Channel {} is degraded: {:?}",
+                                id,
+                                health.error
+                            );
+                        }
+                        HealthStatus::Unhealthy | HealthStatus::Unknown => {
+                            error!(
+                                "Channel {} is unhealthy: {:?}",
+                                id,
+                                health.error
+                            );
+                            // Attempt reconnect for unhealthy channels
+                            if let Some(channel) = registry.get(&id).await {
+                                if let Err(e) = channel.reconnect().await {
+                                    error!(
+                                        "Channel {} reconnect failed: {}",
+                                        id,
+                                        e
+                                    );
+                                } else {
+                                    info!(
+                                        "Channel {} reconnected successfully",
+                                        id
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
             }
         });
 
