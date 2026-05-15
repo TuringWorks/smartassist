@@ -12,6 +12,7 @@ description = "Browser automation and sandboxing for SmartAssist"
 [features]
 default = []
 docker = ["bollard"]
+chromiumoxide = ["dep:chromiumoxide", "dep:futures"]
 
 [dependencies]
 tokio = { workspace = true }
@@ -24,6 +25,7 @@ uuid = { workspace = true }
 chrono = { workspace = true }
 reqwest = { workspace = true }
 async-trait = { workspace = true }
+futures = { workspace = true, optional = true }
 
 smartassist-core = { workspace = true }
 smartassist-sandbox = { workspace = true }

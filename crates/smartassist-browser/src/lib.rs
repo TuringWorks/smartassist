@@ -11,7 +11,9 @@ use tokio::sync::RwLock;
 pub mod docker;
 pub mod vnc;
 
-use smartassist_core::types::{AgentId, SessionKey};
+#[cfg(feature = "chromiumoxide")]
+pub mod chromiumoxide;
+
 use thiserror::Error;
 
 /// Errors returned by the browser automation subsystem.

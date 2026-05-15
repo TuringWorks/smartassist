@@ -284,7 +284,7 @@ impl Gateway {
         }
 
         let browser_manager = Arc::new(smartassist_browser::BrowserManager::new(
-            Arc::new(smartassist_browser::docker::DockerBrowserBackend::new()),
+            Arc::new(smartassist_browser::chromiumoxide::ChromiumoxideBackend::new()),
         ));
         let canvas_manager = Arc::new(smartassist_canvas::CanvasManager::new());
 
