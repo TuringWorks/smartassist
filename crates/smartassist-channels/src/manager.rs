@@ -8,13 +8,14 @@
 
 use crate::delivery::{DeliveryConfig, DeliveryQueue};
 use crate::error::ChannelError;
+use crate::health_monitor::{HealthEvent, HealthMonitor, HealthPolicy};
 use crate::registry::{ChannelRegistry, RegistryStats};
 use crate::routing::{RouteMatch, RouteRule, Router};
 use crate::traits::{Channel, ChannelConfig, ChannelFactory, SendResult};
 use crate::Result;
 use async_trait::async_trait;
 use smartassist_core::types::{
-    AgentId, ChannelHealth, HealthStatus, InboundMessage, MessageTarget, OutboundMessage,
+    AgentId, ChannelHealth, InboundMessage, MessageTarget, OutboundMessage,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -43,6 +44,9 @@ pub struct ChannelManager {
 
     /// Shutdown signal.
     shutdown: Arc<RwLock<Option<mpsc::Sender<()>>>>,
+
+    /// Health monitor for polling and reaction policies.
+    health_monitor: Arc<HealthMonitor>,
 }
 
 /// Handler for processing routed messages.
@@ -75,6 +79,7 @@ impl ChannelManager {
             message_handler: Arc::new(RwLock::new(None)),
             running: Arc::new(RwLock::new(false)),
             shutdown: Arc::new(RwLock::new(None)),
+            health_monitor: Arc::new(HealthMonitor::default_policy()),
         }
     }
 
@@ -83,6 +88,16 @@ impl ChannelManager {
         registry: Arc<ChannelRegistry>,
         router: Router,
         delivery_queue: Arc<DeliveryQueue>,
+    ) -> Self {
+        Self::with_components_and_health(registry, router, delivery_queue, None)
+    }
+
+    /// Create with custom components and an optional health monitor.
+    pub fn with_components_and_health(
+        registry: Arc<ChannelRegistry>,
+        router: Router,
+        delivery_queue: Arc<DeliveryQueue>,
+        health_monitor: Option<Arc<HealthMonitor>>,
     ) -> Self {
         let (inbound_tx, _) = broadcast::channel(1000);
 
@@ -94,6 +109,7 @@ impl ChannelManager {
             message_handler: Arc::new(RwLock::new(None)),
             running: Arc::new(RwLock::new(false)),
             shutdown: Arc::new(RwLock::new(None)),
+            health_monitor: health_monitor.unwrap_or_else(|| Arc::new(HealthMonitor::default_policy())),
         }
     }
 
@@ -270,8 +286,10 @@ impl ChannelManager {
         // Start delivery processing
         self.start_delivery_processing().await?;
 
-        // Start health polling
-        self.start_health_polling().await?;
+        // Start health monitoring
+        self.health_monitor
+            .clone()
+            .start(self.running.clone(), self.registry.clone());
 
         *running = true;
         info!("Channel manager started");
@@ -422,74 +440,12 @@ impl ChannelManager {
         Ok(())
     }
 
-    /// Start a background health polling loop.
-    ///
-    /// Every 30 seconds, checks the health of all registered channels.
-    /// Unhealthy channels trigger an automatic reconnect attempt.
-    async fn start_health_polling(&self) -> Result<()> {
-        let registry = self.registry.clone();
-        let running = self.running.clone();
-        let interval = tokio::time::Duration::from_secs(30);
-
-        tokio::spawn(async move {
-            info!("Starting health polling loop (interval: {:?})", interval);
-
-            loop {
-                tokio::time::sleep(interval).await;
-
-                // Check if still running
-                if !*running.read().await {
-                    break;
-                }
-
-                let health_map = registry.health_check().await;
-                for (id, health) in health_map {
-                    match health.status {
-                        HealthStatus::Healthy => {
-                            debug!(
-                                "Channel {} is healthy ({}ms)",
-                                id,
-                                health.latency_ms.unwrap_or(0)
-                            );
-                        }
-                        HealthStatus::Degraded => {
-                            warn!(
-                                "Channel {} is degraded: {:?}",
-                                id,
-                                health.error
-                            );
-                        }
-                        HealthStatus::Unhealthy | HealthStatus::Unknown => {
-                            error!(
-                                "Channel {} is unhealthy: {:?}",
-                                id,
-                                health.error
-                            );
-                            // Attempt reconnect for unhealthy channels
-                            if let Some(channel) = registry.get(&id).await {
-                                if let Err(e) = channel.reconnect().await {
-                                    error!(
-                                        "Channel {} reconnect failed: {}",
-                                        id,
-                                        e
-                                    );
-                                } else {
-                                    info!(
-                                        "Channel {} reconnected successfully",
-                                        id
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        });
-
-        Ok(())
-    }
-
     // --- Health & Status ---
+
+    /// Subscribe to health status transition events.
+    pub fn subscribe_health_events(&self) -> tokio::sync::broadcast::Receiver<HealthEvent> {
+        self.health_monitor.subscribe()
+    }
 
     /// Get health status for all channels.
     pub async fn health(&self) -> HashMap<String, ChannelHealth> {
@@ -544,6 +500,7 @@ pub struct ChannelManagerBuilder {
     default_agent: Option<AgentId>,
     rules: Vec<RouteRule>,
     delivery_config: DeliveryConfig,
+    health_policy: Option<HealthPolicy>,
 }
 
 impl Default for ChannelManagerBuilder {
@@ -559,6 +516,7 @@ impl ChannelManagerBuilder {
             default_agent: None,
             rules: Vec::new(),
             delivery_config: DeliveryConfig::default(),
+            health_policy: None,
         }
     }
 
@@ -586,6 +544,12 @@ impl ChannelManagerBuilder {
         self
     }
 
+    /// Set the health monitoring policy.
+    pub fn health_policy(mut self, policy: HealthPolicy) -> Self {
+        self.health_policy = Some(policy);
+        self
+    }
+
     /// Build the channel manager.
     pub fn build(self) -> ChannelManager {
         let mut router = Router::new();
@@ -598,10 +562,13 @@ impl ChannelManagerBuilder {
             router.add_rule(rule);
         }
 
-        ChannelManager::with_components(
+        let health_monitor = self.health_policy.map(|p| Arc::new(HealthMonitor::new(p)));
+
+        ChannelManager::with_components_and_health(
             Arc::new(ChannelRegistry::new()),
             router,
             Arc::new(DeliveryQueue::new(self.delivery_config)),
+            health_monitor,
         )
     }
 }

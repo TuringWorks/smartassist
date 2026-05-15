@@ -12,6 +12,7 @@ pub mod registry;
 pub mod manager;
 pub mod auto_reply;
 pub mod heartbeat;
+pub mod health_monitor;
 pub mod factories;
 
 #[cfg(feature = "telegram")]
@@ -68,6 +69,7 @@ pub use registry::{ChannelRegistry, RegisteredChannel};
 pub use manager::{ChannelManager, ChannelManagerBuilder, ManagerStatus, ManagerMessageHandler};
 pub use auto_reply::{AutoReplyEngine, AutoReplyRule, MatchMode};
 pub use heartbeat::{HeartbeatFilter, HeartbeatPattern, default_patterns};
+pub use health_monitor::{HealthMonitor, HealthPolicy, HealthEvent, HealthRecord, HealthHistory};
 pub use factories::register_default_factories;
 
 #[cfg(feature = "telegram")]
