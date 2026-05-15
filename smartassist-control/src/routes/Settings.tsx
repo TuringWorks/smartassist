@@ -5,10 +5,11 @@ import {
   SecretInput,
   PageHeader,
   Toast,
-  styles,
+  styles as formStyles,
 } from "../components/FormComponents";
 import { theme, updateTheme } from "../App";
 import { listSecrets, setSecret, deleteSecret } from "../lib/tauri";
+import styles from "./Settings.module.css";
 
 export default function Settings() {
   const [toast, setToast] = createSignal<{
@@ -59,7 +60,7 @@ export default function Settings() {
   };
 
   return (
-    <div style={{ "padding-bottom": "80px" }}>
+    <div class={styles.container}>
       <PageHeader title="Settings" subtitle="Manage application appearance and secure provider credentials" />
 
       {/* ── Appearance Section ── */}
@@ -78,19 +79,19 @@ export default function Settings() {
 
       {/* ── Provider API Keys Section ── */}
       <Section title="Provider API Keys" defaultOpen={true}>
-        <p style={{ color: "var(--text-secondary)", "font-size": "14px", "margin-bottom": "16px" }}>
+        <p class={styles.description}>
           API keys are encrypted and stored securely by the OS keychain. Once set, they cannot be viewed, only overwritten or deleted.
         </p>
 
         <Show when={secrets.loading}>
-          <p style={{ color: "var(--text-tertiary)" }}>Loading secrets...</p>
+          <p class={styles.loading}>Loading secrets...</p>
         </Show>
         <Show when={secrets.error}>
-          <p style={{ color: "var(--accent-red)" }}>Error loading secrets.</p>
+          <p class={styles.error}>Error loading secrets.</p>
         </Show>
         
         <Show when={secrets()}>
-          <div style={{ "margin-bottom": "24px" }}>
+          <div class={styles.providerList}>
             <For each={[
               { id: "openai_api_key", label: "OpenAI API Key", prefix: "sk-" },
               { id: "anthropic_api_key", label: "Anthropic API Key", prefix: "sk-ant-" },
@@ -103,36 +104,17 @@ export default function Settings() {
                 const isEditing = () => editingSecret() === provider.id;
 
                 return (
-                  <div
-                    style={{
-                      background: "var(--bg-input)",
-                      border: "1px solid var(--border-primary)",
-                      "border-radius": "var(--radius-sm)",
-                      padding: "16px",
-                      "margin-bottom": "12px",
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        "justify-content": "space-between",
-                        "align-items": "center",
-                        "margin-bottom": isEditing() ? "16px" : "0",
-                      }}
-                    >
+                  <div class={styles.providerCard}>
+                    <div class={isEditing() ? styles.providerHeaderEditing : styles.providerHeader}>
                       <div>
-                        <strong style={{ color: "var(--text-heading)", "display": "block" }}>{provider.label}</strong>
-                        <span style={{ 
-                          color: isSet() ? "var(--accent-green)" : "var(--text-tertiary)", 
-                          "font-size": "13px" 
-                        }}>
+                        <strong class={styles.providerLabel}>{provider.label}</strong>
+                        <span class={isSet() ? styles.statusConfigured : styles.statusUnconfigured}>
                           {isSet() ? "[ENCRYPTED & SAVED]" : "Not Configured"}
                         </span>
                       </div>
-                      <div>
+                      <div class={styles.actionButtons}>
                         <button
-                          class={styles.btnSecondary}
-                          style={{ "margin-right": "8px" }}
+                          class={formStyles.btnSecondary}
                           onClick={() => {
                             if (isEditing()) {
                               setEditingSecret(null);
@@ -148,7 +130,7 @@ export default function Settings() {
                         </button>
                         <Show when={isSet()}>
                           <button
-                            class={styles.btnDanger}
+                            class={formStyles.btnDanger}
                             onClick={() => handleDeleteSecret(provider.id)}
                           >
                             Delete
@@ -170,8 +152,7 @@ export default function Settings() {
                       />
                       <input type="hidden" id={`overwrite-${provider.id}`} />
                       <button
-                        class={styles.btnPrimary}
-                        style={{ "margin-top": "8px" }}
+                        class={`${formStyles.btnPrimary} ${styles.saveButton}`}
                         onClick={() => {
                           const val = (document.getElementById(`overwrite-${provider.id}`) as HTMLInputElement)?.value;
                           if (val) handleSaveSecret(provider.id, val);

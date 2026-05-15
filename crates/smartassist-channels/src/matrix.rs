@@ -17,6 +17,8 @@ use smartassist_core::types::{
     ChannelCapabilities, ChannelFeatures, ChannelHealth, ChannelLimits, ChatType,
     HealthStatus, InboundMessage, MediaCapabilities, MessageTarget, OutboundMessage,
 };
+use reqwest;
+use serde_json::json;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
@@ -127,14 +129,79 @@ impl Channel for MatrixChannel {
 #[async_trait]
 impl ChannelSender for MatrixChannel {
     async fn send(&self, message: OutboundMessage) -> Result<SendResult> {
-        let msg_id = uuid::Uuid::new_v4().to_string();
+        if self.access_token.is_empty() {
+            return Err(ChannelError::Config(
+                "Matrix access_token is not configured".to_string(),
+            ));
+        }
+
+        let room_id = if message.target.chat_id.is_empty() {
+            self.room_id.clone().unwrap_or_default()
+        } else {
+            message.target.chat_id.clone()
+        };
+
+        if room_id.is_empty() {
+            return Err(ChannelError::Config(
+                "Matrix room_id is not configured".to_string(),
+            ));
+        }
+
+        let txn_id = uuid::Uuid::new_v4().to_string();
+        let url = format!(
+            "{}/_matrix/client/v3/rooms/{}/send/m.room.message/{}",
+            self.homeserver.trim_end_matches('/'),
+            urlencoding::encode(&room_id),
+            txn_id
+        );
+
+        let payload = json!({
+            "msgtype": "m.text",
+            "body": message.text,
+        });
+
+        let client = reqwest::Client::new();
+        let response = client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", self.access_token))
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| ChannelError::Channel {
+                channel: "matrix".to_string(),
+                message: format!("HTTP error: {}", e),
+            })?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            return Err(ChannelError::Channel {
+                channel: "matrix".to_string(),
+                message: format!("Matrix API error {}: {}", status, body),
+            });
+        }
+
+        let response_body: serde_json::Value = response.json().await.map_err(|e| {
+            ChannelError::Channel {
+                channel: "matrix".to_string(),
+                message: format!("Failed to parse response: {}", e),
+            }
+        })?;
+
+        let msg_id = response_body
+            .get("event_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
         debug!(
-            "Matrix send to {}: {} (msg_id: {})",
-            message.target.chat_id,
+            "Matrix sent to {}: {} (event_id: {})",
+            room_id,
             message.text,
             msg_id
         );
-        Ok(SendResult::with_chat(msg_id, message.target.chat_id)
+
+        Ok(SendResult::with_chat(msg_id, room_id)
             .with_metadata("homeserver", serde_json::json!(&self.homeserver)))
     }
 
@@ -232,8 +299,26 @@ impl ChannelReceiver for MatrixChannel {
 #[async_trait]
 impl ChannelLifecycle for MatrixChannel {
     async fn connect(&self) -> Result<()> {
+        if self.homeserver.is_empty() {
+            return Err(ChannelError::Config(
+                "Matrix homeserver is not configured".to_string(),
+            ));
+        }
+        if self.access_token.is_empty() {
+            return Err(ChannelError::Config(
+                "Matrix access_token is not configured".to_string(),
+            ));
+        }
+
+        // Validate homeserver URL is well-formed
+        if let Err(e) = url::Url::parse(&self.homeserver) {
+            return Err(ChannelError::Config(format!(
+                "Invalid Matrix homeserver URL: {}",
+                e
+            )));
+        }
+
         self.connected.store(true, Ordering::Relaxed);
-        
         info!("Matrix channel connected: {}", self.instance_id);
         Ok(())
     }
@@ -241,7 +326,6 @@ impl ChannelLifecycle for MatrixChannel {
     async fn disconnect(&self) -> Result<()> {
         self.stop_receiving().await?;
         self.connected.store(false, Ordering::Relaxed);
-        
         info!("Matrix channel disconnected: {}", self.instance_id);
         Ok(())
     }
@@ -251,21 +335,50 @@ impl ChannelLifecycle for MatrixChannel {
     }
 
     async fn health(&self) -> Result<ChannelHealth> {
-        let connected = self.connected.load(Ordering::Relaxed);
-        Ok(ChannelHealth {
-            status: if connected {
-                HealthStatus::Healthy
-            } else {
-                HealthStatus::Unhealthy
-            },
-            latency_ms: Some(0),
-            last_message_at: None,
-            error: if connected {
-                None
-            } else {
-                Some("Not connected".to_string())
-            },
-        })
+        let start = std::time::Instant::now();
+        let connected = self.is_connected();
+
+        if !connected {
+            return Ok(ChannelHealth {
+                status: HealthStatus::Unhealthy,
+                latency_ms: Some(0),
+                last_message_at: None,
+                error: Some("Not connected".to_string()),
+            });
+        }
+
+        // Perform a lightweight GET to /_matrix/client/versions
+        let url = format!(
+            "{}/_matrix/client/versions",
+            self.homeserver.trim_end_matches('/')
+        );
+        let client = reqwest::Client::new();
+        match client.get(&url).send().await {
+            Ok(response) if response.status().is_success() => {
+                Ok(ChannelHealth {
+                    status: HealthStatus::Healthy,
+                    latency_ms: Some(start.elapsed().as_millis() as u64),
+                    last_message_at: None,
+                    error: None,
+                })
+            }
+            Ok(response) => {
+                Ok(ChannelHealth {
+                    status: HealthStatus::Degraded,
+                    latency_ms: Some(start.elapsed().as_millis() as u64),
+                    last_message_at: None,
+                    error: Some(format!("Matrix returned status {}", response.status())),
+                })
+            }
+            Err(e) => {
+                Ok(ChannelHealth {
+                    status: HealthStatus::Unhealthy,
+                    latency_ms: Some(start.elapsed().as_millis() as u64),
+                    last_message_at: None,
+                    error: Some(format!("Health check request failed: {}", e)),
+                })
+            }
+        }
     }
 }
 
@@ -303,6 +416,8 @@ impl ChannelFactory for MatrixChannelFactory {
 mod tests {
     use super::*;
     use std::collections::HashMap;
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+    use wiremock::matchers::{method, header};
 
     #[test]
     fn test_matrix_channel_creation() {
@@ -336,9 +451,18 @@ mod tests {
 
     #[tokio::test]
     async fn test_matrix_send_message() {
-        let channel = MatrixChannel::new("test_matrix", "https://matrix.org", "token123");
+        let mock_server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(header("Authorization", "Bearer token123"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "event_id": "$abc123def456"
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let channel = MatrixChannel::new("test_matrix", &mock_server.uri(), "token123");
         let target = MessageTarget {
-            chat_id: "!room:matrix.org".to_string(),
+            chat_id: "!room:example.com".to_string(),
             thread_id: None,
         };
         let message = OutboundMessage {
@@ -352,7 +476,8 @@ mod tests {
 
         let result = channel.send(message).await.unwrap();
         assert!(!result.message_id.is_empty());
-        assert_eq!(result.chat_id, "!room:matrix.org");
+        assert_eq!(result.message_id, "$abc123def456");
+        assert_eq!(result.chat_id, "!room:example.com");
     }
 
     #[tokio::test]

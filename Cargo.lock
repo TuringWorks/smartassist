@@ -8778,6 +8778,7 @@ dependencies = [
  "tokio-tungstenite 0.21.0",
  "tracing",
  "url",
+ "urlencoding",
  "uuid",
  "wiremock 0.6.5",
 ]

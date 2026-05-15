@@ -1,0 +1,67 @@
+.container {
+  padding-bottom: 80px;
+}
+
+.description {
+  color: var(--text-secondary);
+  font-size: 14px;
+  margin-bottom: 16px;
+}
+
+.loading {
+  color: var(--text-tertiary);
+}
+
+.error {
+  color: var(--accent-red);
+}
+
+.providerList {
+  margin-bottom: 24px;
+}
+
+.providerCard {
+  background: var(--bg-input);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  padding: 16px;
+  margin-bottom: 12px;
+}
+
+.providerHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0;
+}
+
+.providerHeaderEditing {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.providerLabel {
+  display: block;
+  color: var(--text-heading);
+}
+
+.statusConfigured {
+  color: var(--accent-green);
+  font-size: 13px;
+}
+
+.statusUnconfigured {
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
+.actionButtons {
+  display: flex;
+  gap: 8px;
+}
+
+.saveButton {
+  margin-top: 8px;
+}
