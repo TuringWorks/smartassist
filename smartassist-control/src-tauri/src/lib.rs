@@ -25,6 +25,9 @@ pub fn run() {
             commands::gateway_restart,
             commands::run_security_audit,
             commands::rpc_call,
+            commands::list_secrets,
+            commands::set_secret,
+            commands::delete_secret,
         ])
         .setup(|app| {
             // Build system tray menu

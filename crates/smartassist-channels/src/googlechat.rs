@@ -7,8 +7,8 @@
 use crate::attachment::Attachment;
 use crate::error::ChannelError;
 use crate::traits::{
-    Channel, ChannelConfig, ChannelLifecycle, ChannelReceiver, ChannelSender, MessageHandler,
-    MessageRef, SendResult,
+    Channel, ChannelConfig, ChannelFactory, ChannelLifecycle, ChannelReceiver, ChannelSender,
+    MessageHandler, MessageRef, SendResult,
 };
 use crate::Result;
 use async_trait::async_trait;
@@ -16,6 +16,8 @@ use smartassist_core::types::{
     ChannelCapabilities, ChannelFeatures, ChannelHealth, ChannelLimits, ChatType,
     HealthStatus, InboundMessage, MediaCapabilities, MessageTarget, OutboundMessage,
 };
+use reqwest;
+use serde_json::json;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
@@ -118,13 +120,56 @@ impl Channel for GoogleChatChannel {
 #[async_trait]
 impl ChannelSender for GoogleChatChannel {
     async fn send(&self, message: OutboundMessage) -> Result<SendResult> {
-        let msg_id = uuid::Uuid::new_v4().to_string();
+        if self.webhook_url.is_empty() {
+            return Err(ChannelError::Config(
+                "Google Chat webhook_url is not configured".to_string(),
+            ));
+        }
+
+        let payload = json!({
+            "text": message.text,
+        });
+
+        let client = reqwest::Client::new();
+        let response = client
+            .post(&self.webhook_url)
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| ChannelError::Channel {
+                channel: "googlechat".to_string(),
+                message: format!("HTTP error: {}", e),
+            })?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            return Err(ChannelError::Channel {
+                channel: "googlechat".to_string(),
+                message: format!("Google Chat API error {}: {}", status, body),
+            });
+        }
+
+        let response_body: serde_json::Value = response.json().await.map_err(|e| {
+            ChannelError::Channel {
+                channel: "googlechat".to_string(),
+                message: format!("Failed to parse response: {}", e),
+            }
+        })?;
+
+        let msg_id = response_body
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
         debug!(
-            "Google Chat send to {}: {} (msg_id: {})",
+            "Google Chat sent to {}: {} (msg_id: {})",
             message.target.chat_id,
             message.text,
             msg_id
         );
+
         Ok(SendResult::with_chat(msg_id, message.target.chat_id))
     }
 
@@ -221,8 +266,21 @@ impl ChannelReceiver for GoogleChatChannel {
 #[async_trait]
 impl ChannelLifecycle for GoogleChatChannel {
     async fn connect(&self) -> Result<()> {
+        if self.webhook_url.is_empty() {
+            return Err(ChannelError::Config(
+                "Google Chat webhook_url is not configured".to_string(),
+            ));
+        }
+
+        // Validate URL is well-formed
+        if let Err(e) = url::Url::parse(&self.webhook_url) {
+            return Err(ChannelError::Config(format!(
+                "Invalid Google Chat webhook_url: {}",
+                e
+            )));
+        }
+
         self.connected.store(true, Ordering::Relaxed);
-        
         info!("Google Chat channel connected: {}", self.instance_id);
         Ok(())
     }
@@ -230,7 +288,6 @@ impl ChannelLifecycle for GoogleChatChannel {
     async fn disconnect(&self) -> Result<()> {
         self.stop_receiving().await?;
         self.connected.store(false, Ordering::Relaxed);
-        
         info!("Google Chat channel disconnected: {}", self.instance_id);
         Ok(())
     }
@@ -240,21 +297,46 @@ impl ChannelLifecycle for GoogleChatChannel {
     }
 
     async fn health(&self) -> Result<ChannelHealth> {
-        let connected = self.connected.load(Ordering::Relaxed);
-        Ok(ChannelHealth {
-            status: if connected {
-                HealthStatus::Healthy
-            } else {
-                HealthStatus::Unhealthy
-            },
-            latency_ms: Some(0),
-            last_message_at: None,
-            error: if connected {
-                None
-            } else {
-                Some("Not connected".to_string())
-            },
-        })
+        let start = std::time::Instant::now();
+        let connected = self.is_connected();
+
+        if !connected {
+            return Ok(ChannelHealth {
+                status: HealthStatus::Unhealthy,
+                latency_ms: Some(0),
+                last_message_at: None,
+                error: Some("Not connected".to_string()),
+            });
+        }
+
+        // Perform a lightweight HEAD request to check reachability
+        let client = reqwest::Client::new();
+        match client.head(&self.webhook_url).send().await {
+            Ok(response) if response.status().is_success() || response.status().is_redirection() => {
+                Ok(ChannelHealth {
+                    status: HealthStatus::Healthy,
+                    latency_ms: Some(start.elapsed().as_millis() as u64),
+                    last_message_at: None,
+                    error: None,
+                })
+            }
+            Ok(response) => {
+                Ok(ChannelHealth {
+                    status: HealthStatus::Degraded,
+                    latency_ms: Some(start.elapsed().as_millis() as u64),
+                    last_message_at: None,
+                    error: Some(format!("Google Chat returned status {}", response.status())),
+                })
+            }
+            Err(e) => {
+                Ok(ChannelHealth {
+                    status: HealthStatus::Unhealthy,
+                    latency_ms: Some(start.elapsed().as_millis() as u64),
+                    last_message_at: None,
+                    error: Some(format!("Health check request failed: {}", e)),
+                })
+            }
+        }
     }
 }
 
@@ -273,9 +355,25 @@ impl Clone for GoogleChatChannel {
     }
 }
 
+/// Factory for creating Google Chat channels.
+pub struct GoogleChatChannelFactory;
+
+#[async_trait]
+impl ChannelFactory for GoogleChatChannelFactory {
+    async fn create(&self, config: ChannelConfig) -> Result<Box<dyn Channel>> {
+        Ok(Box::new(GoogleChatChannel::from_config(config)))
+    }
+
+    fn channel_type(&self) -> &str {
+        "googlechat"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+    use wiremock::matchers::method;
 
     #[test]
     fn test_googlechat_channel_creation() {
@@ -309,7 +407,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_googlechat_send_message() {
-        let channel = GoogleChatChannel::new("test_gc", "https://chat.googleapis.com/v1/spaces/XXX");
+        let mock_server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "name": "spaces/123/messages/abc123",
+                "text": "Hello Google Chat"
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let webhook_url = format!("{}/webhook", mock_server.uri());
+        let channel = GoogleChatChannel::new("test_gc", webhook_url);
         let target = MessageTarget {
             chat_id: "spaces/123".to_string(),
             thread_id: None,
@@ -325,6 +433,7 @@ mod tests {
 
         let result = channel.send(message).await.unwrap();
         assert!(!result.message_id.is_empty());
+        assert_eq!(result.message_id, "spaces/123/messages/abc123");
     }
 
     #[tokio::test]

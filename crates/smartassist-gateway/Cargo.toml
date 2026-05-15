@@ -65,3 +65,27 @@ tokio-test = "0.4"
 
 [features]
 default = []
+
+# Individual channel features
+telegram = ["smartassist-channels/telegram"]
+discord = ["smartassist-channels/discord"]
+slack = ["smartassist-channels/slack"]
+web = ["smartassist-channels/web"]
+signal = ["smartassist-channels/signal"]
+imessage = ["smartassist-channels/imessage"]
+whatsapp = ["smartassist-channels/whatsapp"]
+line = ["smartassist-channels/line"]
+irc = ["smartassist-channels/irc"]
+matrix = ["smartassist-channels/matrix"]
+googlechat = ["smartassist-channels/googlechat"]
+msteams = ["smartassist-channels/msteams"]
+feishu = ["smartassist-channels/feishu"]
+mattermost = ["smartassist-channels/mattermost"]
+zalo = ["smartassist-channels/zalo"]
+
+# Enable all channels at once
+all-channels = [
+    "telegram", "discord", "slack", "web", "signal", "imessage",
+    "whatsapp", "line", "irc", "matrix", "googlechat", "msteams",
+    "feishu", "mattermost", "zalo",
+]

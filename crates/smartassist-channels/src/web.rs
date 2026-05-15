@@ -12,8 +12,8 @@
 use crate::attachment::Attachment;
 use crate::error::ChannelError;
 use crate::traits::{
-    Channel, ChannelConfig, ChannelLifecycle, ChannelReceiver, ChannelSender, MessageHandler,
-    MessageRef, SendResult,
+    Channel, ChannelConfig, ChannelFactory, ChannelLifecycle, ChannelReceiver, ChannelSender,
+    MessageHandler, MessageRef, SendResult,
 };
 use crate::Result;
 use async_trait::async_trait;
@@ -783,6 +783,20 @@ async fn handle_connection(
 
     info!("Client {} disconnected", client_id);
     Ok(())
+}
+
+/// Factory for creating Web channels.
+pub struct WebChannelFactory;
+
+#[async_trait]
+impl ChannelFactory for WebChannelFactory {
+    async fn create(&self, config: ChannelConfig) -> Result<Box<dyn Channel>> {
+        Ok(Box::new(WebChannel::from_config(config)))
+    }
+
+    fn channel_type(&self) -> &str {
+        "web"
+    }
 }
 
 #[cfg(test)]

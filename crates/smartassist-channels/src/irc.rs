@@ -9,8 +9,8 @@
 use crate::attachment::Attachment;
 use crate::error::ChannelError;
 use crate::traits::{
-    Channel, ChannelConfig, ChannelLifecycle, ChannelReceiver, ChannelSender, MessageHandler,
-    MessageRef, SendResult,
+    Channel, ChannelConfig, ChannelFactory, ChannelLifecycle, ChannelReceiver, ChannelSender,
+    MessageHandler, MessageRef, SendResult,
 };
 use crate::Result;
 use async_trait::async_trait;
@@ -276,6 +276,20 @@ impl Clone for IrcChannel {
             message_rx: Arc::new(RwLock::new(message_rx)),
             handler: self.handler.clone(),
         }
+    }
+}
+
+/// Factory for creating IRC channels.
+pub struct IrcChannelFactory;
+
+#[async_trait]
+impl ChannelFactory for IrcChannelFactory {
+    async fn create(&self, config: ChannelConfig) -> Result<Box<dyn Channel>> {
+        Ok(Box::new(IrcChannel::from_config(config)))
+    }
+
+    fn channel_type(&self) -> &str {
+        "irc"
     }
 }
 

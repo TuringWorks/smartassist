@@ -7,8 +7,8 @@
 use crate::attachment::Attachment;
 use crate::error::ChannelError;
 use crate::traits::{
-    Channel, ChannelConfig, ChannelLifecycle, ChannelReceiver, ChannelSender, MessageHandler,
-    MessageRef, SendResult,
+    Channel, ChannelConfig, ChannelFactory, ChannelLifecycle, ChannelReceiver, ChannelSender,
+    MessageHandler, MessageRef, SendResult,
 };
 use crate::Result;
 use async_trait::async_trait;
@@ -270,6 +270,20 @@ impl Clone for MsTeamsChannel {
             message_rx: Arc::new(RwLock::new(message_rx)),
             handler: self.handler.clone(),
         }
+    }
+}
+
+/// Factory for creating Microsoft Teams channels.
+pub struct MsTeamsChannelFactory;
+
+#[async_trait]
+impl ChannelFactory for MsTeamsChannelFactory {
+    async fn create(&self, config: ChannelConfig) -> Result<Box<dyn Channel>> {
+        Ok(Box::new(MsTeamsChannel::from_config(config)))
+    }
+
+    fn channel_type(&self) -> &str {
+        "msteams"
     }
 }
 

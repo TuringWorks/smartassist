@@ -8,8 +8,8 @@
 use crate::attachment::Attachment;
 use crate::error::ChannelError;
 use crate::traits::{
-    Channel, ChannelConfig, ChannelLifecycle, ChannelReceiver, ChannelSender, MessageHandler,
-    MessageRef, SendResult,
+    Channel, ChannelConfig, ChannelFactory, ChannelLifecycle, ChannelReceiver, ChannelSender,
+    MessageHandler, MessageRef, SendResult,
 };
 use crate::Result;
 use async_trait::async_trait;
@@ -1118,6 +1118,21 @@ impl Clone for WhatsAppChannel {
             handler: self.handler.clone(),
             shutdown: self.shutdown.clone(),
         }
+    }
+}
+
+/// Factory for creating WhatsApp channels.
+pub struct WhatsAppChannelFactory;
+
+#[async_trait]
+impl ChannelFactory for WhatsAppChannelFactory {
+    async fn create(&self, config: ChannelConfig) -> Result<Box<dyn Channel>> {
+        let channel = WhatsAppChannel::from_config(config)?;
+        Ok(Box::new(channel))
+    }
+
+    fn channel_type(&self) -> &str {
+        "whatsapp"
     }
 }
 

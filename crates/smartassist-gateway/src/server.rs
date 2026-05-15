@@ -292,6 +292,7 @@ impl Gateway {
         let (talk_runtime, _talk_events) = smartassist_talk::TalkRuntimeBuilder::default().build();
 
         let channel_manager = Arc::new(smartassist_channels::ChannelManager::new());
+        smartassist_channels::register_default_factories(&channel_manager).await;
 
         context = context
             .with_browser_manager(browser_manager)

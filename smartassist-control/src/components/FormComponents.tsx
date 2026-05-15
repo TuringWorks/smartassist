@@ -20,6 +20,8 @@ export function TextInput(props: TextInputProps) {
         type="text"
         value={props.value}
         placeholder={props.placeholder}
+        spellcheck={false}
+        autocomplete="off"
         onInput={(e) => props.onChange(e.currentTarget.value)}
       />
       <Show when={props.help}>
@@ -50,6 +52,8 @@ export function NumberInput(props: NumberInputProps) {
         value={props.value}
         min={props.min}
         max={props.max}
+        title={props.label}
+        aria-label={props.label}
         onInput={(e) => {
           const v = parseInt(e.currentTarget.value, 10);
           if (!isNaN(v)) props.onChange(v);
@@ -79,6 +83,8 @@ export function EnumSelect<T extends string>(props: EnumSelectProps<T>) {
       <select
         class={styles.select}
         value={props.value}
+        title={props.label}
+        aria-label={props.label}
         onChange={(e) => props.onChange(e.currentTarget.value as T)}
       >
         {props.options.map((opt) => (
@@ -117,6 +123,8 @@ export function SecretInput(props: SecretInputProps) {
           type={visible() ? "text" : "password"}
           value={isRedacted() ? "" : props.value}
           placeholder={isRedacted() ? "[REDACTED] Enter new value to change" : props.placeholder}
+          spellcheck={false}
+          autocomplete="off"
           onInput={(e) => props.onChange(e.currentTarget.value)}
         />
         <button

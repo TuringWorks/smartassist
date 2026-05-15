@@ -11,8 +11,8 @@
 use crate::attachment::Attachment;
 use crate::error::ChannelError;
 use crate::traits::{
-    Channel, ChannelConfig, ChannelLifecycle, ChannelReceiver, ChannelSender, MessageHandler,
-    MessageRef, SendResult,
+    Channel, ChannelConfig, ChannelFactory, ChannelLifecycle, ChannelReceiver, ChannelSender,
+    MessageHandler, MessageRef, SendResult,
 };
 use crate::Result;
 use async_trait::async_trait;
@@ -955,6 +955,32 @@ pub struct LineProfile {
     pub picture_url: Option<String>,
     #[serde(rename = "statusMessage")]
     pub status_message: Option<String>,
+}
+
+/// Factory for creating LINE channels.
+pub struct LineChannelFactory;
+
+#[async_trait]
+impl ChannelFactory for LineChannelFactory {
+    async fn create(&self, config: ChannelConfig) -> Result<Box<dyn Channel>> {
+        let access_token = config
+            .options
+            .get("access_token")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ChannelError::Config("Missing access_token in LINE config".to_string()))?
+            .to_string();
+        let channel_secret = config
+            .options
+            .get("channel_secret")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ChannelError::Config("Missing channel_secret in LINE config".to_string()))?
+            .to_string();
+        Ok(Box::new(LineChannel::from_config(config, access_token, channel_secret)))
+    }
+
+    fn channel_type(&self) -> &str {
+        "line"
+    }
 }
 
 #[cfg(test)]

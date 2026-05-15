@@ -182,3 +182,32 @@ pub async fn rpc_call(
 
     ws.call(&method, params).await
 }
+
+// ── Secrets Management ─────────────────────────────────────────
+
+use smartassist_secrets::SecretStore;
+
+/// List all stored secrets.
+#[tauri::command]
+pub async fn list_secrets() -> Result<Vec<String>, String> {
+    let store = smartassist_secrets::FileSecretStore::from_default_dir()
+        .map_err(|e| e.to_string())?;
+    let refs = store.list().await.map_err(|e| e.to_string())?;
+    Ok(refs.into_iter().map(|r| r.name).collect())
+}
+
+/// Set a new secret or overwrite an existing one.
+#[tauri::command]
+pub async fn set_secret(name: String, value: String) -> Result<(), String> {
+    let store = smartassist_secrets::FileSecretStore::from_default_dir()
+        .map_err(|e| e.to_string())?;
+    store.set(&name, &value).await.map_err(|e| e.to_string())
+}
+
+/// Delete a stored secret.
+#[tauri::command]
+pub async fn delete_secret(name: String) -> Result<(), String> {
+    let store = smartassist_secrets::FileSecretStore::from_default_dir()
+        .map_err(|e| e.to_string())?;
+    store.delete(&name).await.map_err(|e| e.to_string())
+}

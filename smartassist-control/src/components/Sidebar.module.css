@@ -73,7 +73,11 @@
   overflow-x: hidden;
   min-height: 0;
   overscroll-behavior: contain;
-  -webkit-overflow-scrolling: touch;
+}
+
+.navBottom {
+  margin-top: auto;
+  padding-top: 16px;
 }
 
 /* ── Section Headers ───────────────────────────────────────── */

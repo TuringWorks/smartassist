@@ -12,6 +12,7 @@ pub mod registry;
 pub mod manager;
 pub mod auto_reply;
 pub mod heartbeat;
+pub mod factories;
 
 #[cfg(feature = "telegram")]
 pub mod telegram;
@@ -59,7 +60,7 @@ pub mod mattermost;
 pub mod zalo;
 
 pub use error::ChannelError;
-pub use traits::{Channel, ChannelConfig, ChannelReceiver, ChannelSender, ChannelLifecycle, MessageHandler, MessageRef, SendResult};
+pub use traits::{Channel, ChannelConfig, ChannelReceiver, ChannelSender, ChannelLifecycle, MessageHandler, MessageRef, SendResult, ChannelFactory};
 pub use routing::{Router, RouteMatch, RouteRule};
 pub use delivery::{DeliveryQueue, DeliveryStatus, DeliveryResult};
 pub use attachment::{Attachment, AttachmentType};
@@ -67,6 +68,52 @@ pub use registry::{ChannelRegistry, RegisteredChannel};
 pub use manager::{ChannelManager, ChannelManagerBuilder, ManagerStatus, ManagerMessageHandler};
 pub use auto_reply::{AutoReplyEngine, AutoReplyRule, MatchMode};
 pub use heartbeat::{HeartbeatFilter, HeartbeatPattern, default_patterns};
+pub use factories::register_default_factories;
+
+#[cfg(feature = "telegram")]
+pub use telegram::TelegramChannelFactory;
+
+#[cfg(feature = "discord")]
+pub use discord::DiscordChannelFactory;
+
+#[cfg(feature = "slack")]
+pub use slack::SlackChannelFactory;
+
+#[cfg(feature = "web")]
+pub use web::WebChannelFactory;
+
+#[cfg(feature = "signal")]
+pub use signal::SignalChannelFactory;
+
+#[cfg(feature = "imessage")]
+pub use imessage::IMessageChannelFactory;
+
+#[cfg(feature = "whatsapp")]
+pub use whatsapp::WhatsAppChannelFactory;
+
+#[cfg(feature = "line")]
+pub use line::LineChannelFactory;
+
+#[cfg(feature = "irc")]
+pub use irc::IrcChannelFactory;
+
+#[cfg(feature = "matrix")]
+pub use matrix::MatrixChannelFactory;
+
+#[cfg(feature = "googlechat")]
+pub use googlechat::GoogleChatChannelFactory;
+
+#[cfg(feature = "msteams")]
+pub use msteams::MsTeamsChannelFactory;
+
+#[cfg(feature = "feishu")]
+pub use feishu::FeishuChannelFactory;
+
+#[cfg(feature = "mattermost")]
+pub use mattermost::MattermostChannelFactory;
+
+#[cfg(feature = "zalo")]
+pub use zalo::ZaloChannelFactory;
 
 /// Result type for channel operations.
 pub type Result<T> = std::result::Result<T, ChannelError>;

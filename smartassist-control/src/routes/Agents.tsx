@@ -1,4 +1,4 @@
-import { Show, Index, createSignal } from "solid-js";
+import { Show, Index, createSignal, For } from "solid-js";
 import { useConfig } from "../lib/useConfig";
 import type { ThinkingLevel, ToolProfile, AgentConfig } from "../lib/types";
 import {
@@ -10,6 +10,77 @@ import {
   PageHeader,
   styles,
 } from "../components/FormComponents";
+
+const POPULAR_MODELS = [
+  { value: "anthropic/claude-3-5-sonnet-20240620", label: "Claude 3.5 Sonnet" },
+  { value: "anthropic/claude-3-opus-20240229", label: "Claude 3 Opus" },
+  { value: "anthropic/claude-3-haiku-20240307", label: "Claude 3 Haiku" },
+  { value: "openai/gpt-4o", label: "GPT-4o" },
+  { value: "openai/gpt-4-turbo", label: "GPT-4 Turbo" },
+  { value: "openai/gpt-3.5-turbo", label: "GPT-3.5 Turbo" },
+  { value: "google/gemini-1.5-pro", label: "Gemini 1.5 Pro" },
+  { value: "google/gemini-1.5-flash", label: "Gemini 1.5 Flash" },
+  { value: "groq/llama3-70b-8192", label: "Groq Llama 3 70B" },
+  { value: "groq/llama3-8b-8192", label: "Groq Llama 3 8B" },
+  { value: "groq/mixtral-8x7b-32768", label: "Groq Mixtral" },
+  { value: "ollama/llama3", label: "Ollama Llama 3" },
+  { value: "ollama/phi3", label: "Ollama Phi-3" },
+];
+
+function ModelSelect(props: { label: string; value: string; onChange: (v: string) => void; help?: string }) {
+  // If the current value is not in our popular list and isn't empty, we assume it's custom.
+  const isKnown = () => POPULAR_MODELS.some(m => m.value === props.value) || props.value === "";
+  const [isCustom, setIsCustom] = createSignal(!isKnown());
+
+  return (
+    <div class={styles.field}>
+      <label class={styles.label}>{props.label}</label>
+      <Show when={!isCustom()} fallback={
+        <div style={{ display: "flex", gap: "8px" }}>
+          <input
+            class={styles.input}
+            type="text"
+            value={props.value}
+            placeholder="provider/model-id"
+            onInput={(e) => props.onChange(e.currentTarget.value)}
+          />
+          <button 
+            class={styles.btnSecondary} 
+            onClick={() => { setIsCustom(false); props.onChange(POPULAR_MODELS[0].value); }}
+            style={{ "white-space": "nowrap" }}
+          >
+            Select List
+          </button>
+        </div>
+      }>
+        <div style={{ display: "flex", gap: "8px" }}>
+          <select
+            class={styles.select}
+            aria-label={props.label}
+            value={props.value}
+            onChange={(e) => {
+              if (e.currentTarget.value === "custom") {
+                setIsCustom(true);
+                props.onChange("");
+              } else {
+                props.onChange(e.currentTarget.value);
+              }
+            }}
+          >
+            <option value="">Select a model...</option>
+            <For each={POPULAR_MODELS}>
+              {(opt) => <option value={opt.value}>{opt.label} ({opt.value})</option>}
+            </For>
+            <option value="custom">Custom model...</option>
+          </select>
+        </div>
+      </Show>
+      <Show when={props.help}>
+        <div class={styles.help}>{props.help}</div>
+      </Show>
+    </div>
+  );
+}
 
 export default function Agents() {
   const { config, dirty, saving, toast, updateConfig, save, discard } =
@@ -41,7 +112,7 @@ export default function Agents() {
                 }
                 help="ID of the default agent to use"
               />
-              <TextInput
+              <ModelSelect
                 label="Default Model"
                 value={cfg().agents.defaults.model ?? ""}
                 onChange={(v) =>
@@ -50,8 +121,7 @@ export default function Agents() {
                     return c;
                   })
                 }
-                placeholder="provider/model-id"
-                help="Format: provider/model-id (e.g. anthropic/claude-sonnet-4-5-20250929)"
+                help="Format: provider/model-id (e.g. anthropic/claude-3-5-sonnet-20240620)"
               />
               <EnumSelect<ThinkingLevel>
                 label="Default Thinking Level"
@@ -145,7 +215,7 @@ export default function Agents() {
                             })
                           }
                         />
-                        <TextInput
+                        <ModelSelect
                           label="Model"
                           value={agent.model ?? ""}
                           onChange={(v) =>
@@ -154,7 +224,6 @@ export default function Agents() {
                               return c;
                             })
                           }
-                          placeholder="provider/model-id"
                         />
                         <EnumSelect<ThinkingLevel>
                           label="Thinking Level"

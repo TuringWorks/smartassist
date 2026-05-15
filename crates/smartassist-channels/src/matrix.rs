@@ -8,8 +8,8 @@
 use crate::attachment::Attachment;
 use crate::error::ChannelError;
 use crate::traits::{
-    Channel, ChannelConfig, ChannelLifecycle, ChannelReceiver, ChannelSender, MessageHandler,
-    MessageRef, SendResult,
+    Channel, ChannelConfig, ChannelFactory, ChannelLifecycle, ChannelReceiver, ChannelSender,
+    MessageHandler, MessageRef, SendResult,
 };
 use crate::Result;
 use async_trait::async_trait;
@@ -282,6 +282,20 @@ impl Clone for MatrixChannel {
             message_rx: Arc::new(RwLock::new(message_rx)),
             handler: self.handler.clone(),
         }
+    }
+}
+
+/// Factory for creating Matrix channels.
+pub struct MatrixChannelFactory;
+
+#[async_trait]
+impl ChannelFactory for MatrixChannelFactory {
+    async fn create(&self, config: ChannelConfig) -> Result<Box<dyn Channel>> {
+        Ok(Box::new(MatrixChannel::from_config(config)))
+    }
+
+    fn channel_type(&self) -> &str {
+        "matrix"
     }
 }
 

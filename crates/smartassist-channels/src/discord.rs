@@ -5,8 +5,8 @@
 use crate::attachment::Attachment;
 use crate::error::ChannelError;
 use crate::traits::{
-    Channel, ChannelConfig, ChannelLifecycle, ChannelReceiver, ChannelSender, MessageHandler,
-    MessageRef, SendResult,
+    Channel, ChannelConfig, ChannelFactory, ChannelLifecycle, ChannelReceiver, ChannelSender,
+    MessageHandler, MessageRef, SendResult,
 };
 use crate::Result;
 use async_trait::async_trait;
@@ -676,6 +676,31 @@ impl Clone for DiscordChannel {
             handler: self.handler.clone(),
             shutdown: self.shutdown.clone(),
         }
+    }
+}
+
+/// Factory for creating Discord channels.
+pub struct DiscordChannelFactory;
+
+#[async_trait]
+impl ChannelFactory for DiscordChannelFactory {
+    async fn create(&self, config: ChannelConfig) -> Result<Box<dyn Channel>> {
+        let token = config
+            .options
+            .get("token")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ChannelError::Config("Missing token in Discord config".to_string()))?
+            .to_string();
+        let application_id = config
+            .options
+            .get("application_id")
+            .and_then(|v| v.as_u64())
+            .ok_or_else(|| ChannelError::Config("Missing application_id in Discord config".to_string()))?;
+        Ok(Box::new(DiscordChannel::from_config(config, token, application_id)))
+    }
+
+    fn channel_type(&self) -> &str {
+        "discord"
     }
 }
 

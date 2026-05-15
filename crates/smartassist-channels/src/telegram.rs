@@ -5,8 +5,8 @@
 use crate::attachment::{Attachment, AttachmentType};
 use crate::error::ChannelError;
 use crate::traits::{
-    Channel, ChannelConfig, ChannelLifecycle, ChannelReceiver, ChannelSender, MessageHandler,
-    MessageRef, SendResult,
+    Channel, ChannelConfig, ChannelFactory, ChannelLifecycle, ChannelReceiver, ChannelSender,
+    MessageHandler, MessageRef, SendResult,
 };
 use crate::Result;
 use async_trait::async_trait;
@@ -693,6 +693,26 @@ impl Clone for TelegramChannel {
             handler: self.handler.clone(),
             shutdown: self.shutdown.clone(),
         }
+    }
+}
+
+/// Factory for creating Telegram channels.
+pub struct TelegramChannelFactory;
+
+#[async_trait]
+impl ChannelFactory for TelegramChannelFactory {
+    async fn create(&self, config: ChannelConfig) -> Result<Box<dyn Channel>> {
+        let bot_token = config
+            .options
+            .get("bot_token")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ChannelError::Config("Missing bot_token in Telegram config".to_string()))?
+            .to_string();
+        Ok(Box::new(TelegramChannel::from_config(config, bot_token)))
+    }
+
+    fn channel_type(&self) -> &str {
+        "telegram"
     }
 }
 

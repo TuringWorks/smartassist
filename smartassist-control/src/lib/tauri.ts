@@ -88,10 +88,27 @@ export async function runSecurityAudit(
   return invoke("run_security_audit", { auditType });
 }
 
-/** Make a JSON-RPC call to the running gateway. Auto-connects. */
 export async function rpcCall<T = unknown>(
   method: string,
   params?: Record<string, unknown>,
 ): Promise<T> {
   return invoke("rpc_call", { method, params });
 }
+
+// ── Secrets Management ─────────────────────────────────────────
+
+/** List all stored secret names. */
+export async function listSecrets(): Promise<string[]> {
+  return invoke("list_secrets");
+}
+
+/** Set or overwrite a secret. */
+export async function setSecret(name: string, value: string): Promise<void> {
+  return invoke("set_secret", { name, value });
+}
+
+/** Delete a secret by name. */
+export async function deleteSecret(name: string): Promise<void> {
+  return invoke("delete_secret", { name });
+}
+

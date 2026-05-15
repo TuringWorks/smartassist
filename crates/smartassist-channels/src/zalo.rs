@@ -7,8 +7,8 @@
 use crate::attachment::Attachment;
 use crate::error::ChannelError;
 use crate::traits::{
-    Channel, ChannelConfig, ChannelLifecycle, ChannelReceiver, ChannelSender, MessageHandler,
-    MessageRef, SendResult,
+    Channel, ChannelConfig, ChannelFactory, ChannelLifecycle, ChannelReceiver, ChannelSender,
+    MessageHandler, MessageRef, SendResult,
 };
 use crate::Result;
 use async_trait::async_trait;
@@ -259,6 +259,20 @@ impl Clone for ZaloChannel {
             message_rx: Arc::new(RwLock::new(message_rx)),
             handler: self.handler.clone(),
         }
+    }
+}
+
+/// Factory for creating Zalo channels.
+pub struct ZaloChannelFactory;
+
+#[async_trait]
+impl ChannelFactory for ZaloChannelFactory {
+    async fn create(&self, config: ChannelConfig) -> Result<Box<dyn Channel>> {
+        Ok(Box::new(ZaloChannel::from_config(config)))
+    }
+
+    fn channel_type(&self) -> &str {
+        "zalo"
     }
 }
 
