@@ -43,6 +43,8 @@ tokio-tungstenite = "0.21"
 # Time
 chrono = { version = "0.4", features = ["serde"] }
 
+smartassist-cron = { path = "../smartassist-cron" }
+
 # Cron scheduling
 cron = "0.12"
 

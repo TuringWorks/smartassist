@@ -1,20 +1,17 @@
 //! Cron job RPC method handlers.
 //!
 //! Handles scheduling and management of cron jobs.
-//! Includes an in-memory [`CronScheduler`] that validates cron expressions
-//! and tracks job metadata (last run, run count, next fire time).
+//! Delegates to the [`smartassist_cron`] crate for scheduling logic
+//! and the [`smartassist_cron::Scheduler`] stored in [`HandlerContext`].
 
 use super::HandlerContext;
 use crate::error::GatewayError;
 use crate::methods::MethodHandler;
 use crate::Result;
 use async_trait::async_trait;
-use cron::Schedule;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use tracing::debug;
 
 // ---------------------------------------------------------------------------
@@ -44,138 +41,18 @@ pub struct CronJobInfo {
     pub run_count: u64,
 }
 
-// ---------------------------------------------------------------------------
-// CronJob (internal scheduler state)
-// ---------------------------------------------------------------------------
-
-/// A scheduled cron job stored in the scheduler.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CronJob {
-    pub id: String,
-    pub schedule: String,
-    pub description: Option<String>,
-    pub agent_id: String,
-    pub prompt: String,
-    pub enabled: bool,
-    pub created_at: chrono::DateTime<chrono::Utc>,
-    pub last_run: Option<chrono::DateTime<chrono::Utc>>,
-    pub run_count: u64,
-}
-
-impl CronJob {
-    /// Convert to the wire-format [`CronJobInfo`], computing next_run from the
-    /// cron expression.
-    fn to_info(&self) -> CronJobInfo {
-        CronJobInfo {
-            id: self.id.clone(),
-            schedule: self.schedule.clone(),
-            description: self.description.clone(),
-            agent_id: self.agent_id.clone(),
-            prompt: self.prompt.clone(),
-            enabled: self.enabled,
-            next_run: CronScheduler::next_run(&self.schedule).map(|t| t.to_rfc3339()),
-            last_run: self.last_run.map(|t| t.to_rfc3339()),
-            run_count: self.run_count,
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// CronScheduler
-// ---------------------------------------------------------------------------
-
-/// In-memory cron job scheduler.
-pub struct CronScheduler {
-    jobs: RwLock<HashMap<String, CronJob>>,
-}
-
-impl CronScheduler {
-    pub fn new() -> Self {
-        Self {
-            jobs: RwLock::new(HashMap::new()),
-        }
-    }
-
-    /// Add a new job. Validates the cron expression before inserting.
-    pub async fn add(&self, job: CronJob) -> std::result::Result<(), String> {
-        Schedule::from_str(&job.schedule)
-            .map_err(|e| format!("Invalid cron expression: {}", e))?;
-        let mut jobs = self.jobs.write().await;
-        jobs.insert(job.id.clone(), job);
-        Ok(())
-    }
-
-    /// Remove a job by ID.
-    pub async fn remove(&self, id: &str) -> Option<CronJob> {
-        let mut jobs = self.jobs.write().await;
-        jobs.remove(id)
-    }
-
-    /// Update fields on an existing job. Only non-None fields are applied.
-    pub async fn update(
-        &self,
-        id: &str,
-        schedule: Option<String>,
-        description: Option<String>,
-        prompt: Option<String>,
-        enabled: Option<bool>,
-    ) -> std::result::Result<(), String> {
-        let mut jobs = self.jobs.write().await;
-        let job = jobs
-            .get_mut(id)
-            .ok_or_else(|| format!("Job not found: {}", id))?;
-
-        if let Some(s) = schedule {
-            Schedule::from_str(&s).map_err(|e| format!("Invalid cron expression: {}", e))?;
-            job.schedule = s;
-        }
-        if let Some(d) = description {
-            job.description = Some(d);
-        }
-        if let Some(p) = prompt {
-            job.prompt = p;
-        }
-        if let Some(e) = enabled {
-            job.enabled = e;
-        }
-        Ok(())
-    }
-
-    /// List all jobs.
-    pub async fn list(&self) -> Vec<CronJob> {
-        let jobs = self.jobs.read().await;
-        jobs.values().cloned().collect()
-    }
-
-    /// Get a single job by ID.
-    pub async fn get(&self, id: &str) -> Option<CronJob> {
-        let jobs = self.jobs.read().await;
-        jobs.get(id).cloned()
-    }
-
-    /// Record a manual trigger: update `last_run` and increment `run_count`.
-    pub async fn record_run(&self, id: &str) -> std::result::Result<CronJob, String> {
-        let mut jobs = self.jobs.write().await;
-        let job = jobs
-            .get_mut(id)
-            .ok_or_else(|| format!("Job not found: {}", id))?;
-        job.last_run = Some(chrono::Utc::now());
-        job.run_count += 1;
-        Ok(job.clone())
-    }
-
-    /// Compute the next run time for a given cron expression.
-    pub fn next_run(schedule: &str) -> Option<chrono::DateTime<chrono::Utc>> {
-        Schedule::from_str(schedule)
-            .ok()?
-            .upcoming(chrono::Utc)
-            .next()
-    }
-}
-
-impl Default for CronScheduler {
-    fn default() -> Self {
-        Self::new()
+/// Convert a [`smartassist_cron::Job`] to the wire-format [`CronJobInfo`].
+fn job_to_info(job: &smartassist_cron::Job) -> CronJobInfo {
+    CronJobInfo {
+        id: job.id.clone(),
+        schedule: job.schedule.clone(),
+        description: job.description.clone(),
+        agent_id: job.agent_id.clone(),
+        prompt: job.prompt.clone(),
+        enabled: job.enabled,
+        next_run: job.compute_next_run().map(|t| t.to_rfc3339()),
+        last_run: job.last_run.map(|t| t.to_rfc3339()),
+        run_count: job.run_count,
     }
 }
 
@@ -199,8 +76,14 @@ impl MethodHandler for CronListHandler {
     async fn call(&self, _params: Option<serde_json::Value>) -> Result<serde_json::Value> {
         debug!("Cron list request");
 
-        let jobs = self.context.cron_scheduler.list().await;
-        let infos: Vec<CronJobInfo> = jobs.iter().map(|j| j.to_info()).collect();
+        let jobs = self
+            .context
+            .cron_scheduler
+            .store()
+            .list()
+            .await
+            .map_err(|e| GatewayError::Internal(e.to_string()))?;
+        let infos: Vec<CronJobInfo> = jobs.iter().map(|j| job_to_info(j)).collect();
         let count = infos.len();
 
         Ok(serde_json::json!({
@@ -230,7 +113,13 @@ impl MethodHandler for CronStatusHandler {
     async fn call(&self, _params: Option<serde_json::Value>) -> Result<serde_json::Value> {
         debug!("Cron status request");
 
-        let jobs = self.context.cron_scheduler.list().await;
+        let jobs = self
+            .context
+            .cron_scheduler
+            .store()
+            .list()
+            .await
+            .map_err(|e| GatewayError::Internal(e.to_string()))?;
         let job_count = jobs.len();
 
         // Find the earliest upcoming fire time across all enabled jobs.
@@ -238,7 +127,7 @@ impl MethodHandler for CronStatusHandler {
             .iter()
             .filter(|j| j.enabled)
             .filter_map(|j| {
-                CronScheduler::next_run(&j.schedule).map(|t| {
+                j.compute_next_run().map(|t| {
                     serde_json::json!({
                         "id": j.id,
                         "next_run": t.to_rfc3339(),
@@ -295,32 +184,28 @@ impl MethodHandler for CronAddHandler {
 
         debug!("Cron add: schedule={}", params.schedule);
 
-        let job_id = uuid::Uuid::new_v4().to_string();
-        let enabled = params.enabled.unwrap_or(true);
+        let job = smartassist_cron::JobBuilder::new()
+            .schedule(params.schedule.clone())
+            .agent_id(params.agent_id.clone())
+            .prompt(params.prompt.clone())
+            .enabled(params.enabled.unwrap_or(true))
+            .build()
+            .map_err(|e| GatewayError::InvalidParams(e.to_string()))?;
 
-        let job = CronJob {
-            id: job_id.clone(),
-            schedule: params.schedule.clone(),
-            description: params.description,
-            agent_id: params.agent_id.clone(),
-            prompt: params.prompt,
-            enabled,
-            created_at: chrono::Utc::now(),
-            last_run: None,
-            run_count: 0,
-        };
+        let job_id = job.id.clone();
 
         self.context
             .cron_scheduler
-            .add(job)
+            .store()
+            .add(&job)
             .await
-            .map_err(|e| GatewayError::InvalidParams(e))?;
+            .map_err(|e| GatewayError::Internal(e.to_string()))?;
 
         Ok(serde_json::json!({
             "id": job_id,
             "schedule": params.schedule,
             "agent_id": params.agent_id,
-            "enabled": enabled,
+            "enabled": job.enabled,
             "created": true,
         }))
     }
@@ -366,17 +251,33 @@ impl MethodHandler for CronUpdateHandler {
 
         debug!("Cron update: id={}", params.id);
 
-        self.context
-            .cron_scheduler
-            .update(
-                &params.id,
-                params.schedule,
-                params.description,
-                params.prompt,
-                params.enabled,
-            )
+        let store = self.context.cron_scheduler.store();
+        let mut job = store
+            .get(&params.id)
             .await
-            .map_err(|e| GatewayError::NotFound(e))?;
+            .map_err(|e| GatewayError::NotFound(e.to_string()))?
+            .ok_or_else(|| GatewayError::NotFound(format!("Job not found: {}", params.id)))?;
+
+        if let Some(s) = params.schedule {
+            // Validate cron expression
+            ::cron::Schedule::from_str(&s)
+                .map_err(|e| GatewayError::InvalidParams(format!("Invalid cron expression: {}", e)))?;
+            job.schedule = s;
+        }
+        if let Some(d) = params.description {
+            job.description = Some(d);
+        }
+        if let Some(p) = params.prompt {
+            job.prompt = p;
+        }
+        if let Some(e) = params.enabled {
+            job.enabled = e;
+        }
+
+        store
+            .update(&job)
+            .await
+            .map_err(|e| GatewayError::Internal(e.to_string()))?;
 
         Ok(serde_json::json!({
             "id": params.id,
@@ -417,7 +318,13 @@ impl MethodHandler for CronRemoveHandler {
 
         debug!("Cron remove: id={}", params.id);
 
-        let removed = self.context.cron_scheduler.remove(&params.id).await;
+        let removed = self
+            .context
+            .cron_scheduler
+            .store()
+            .remove(&params.id)
+            .await
+            .map_err(|e| GatewayError::NotFound(e.to_string()))?;
 
         if removed.is_none() {
             return Err(GatewayError::NotFound(format!(
@@ -465,12 +372,20 @@ impl MethodHandler for CronRunHandler {
 
         debug!("Cron run: id={}", params.id);
 
-        let job = self
-            .context
-            .cron_scheduler
-            .record_run(&params.id)
+        let store = self.context.cron_scheduler.store();
+        let mut job = store
+            .get(&params.id)
             .await
-            .map_err(|e| GatewayError::NotFound(e))?;
+            .map_err(|e| GatewayError::NotFound(e.to_string()))?
+            .ok_or_else(|| GatewayError::NotFound(format!("Job not found: {}", params.id)))?;
+
+        job.last_run = Some(chrono::Utc::now());
+        job.run_count += 1;
+
+        store
+            .update(&job)
+            .await
+            .map_err(|e| GatewayError::Internal(e.to_string()))?;
 
         let run_id = uuid::Uuid::new_v4().to_string();
 
@@ -601,135 +516,160 @@ impl TryFrom<serde_json::Value> for CronRunParams {
 mod tests {
     use super::*;
 
+    fn test_context() -> Arc<HandlerContext> {
+        Arc::new(HandlerContext::new())
+    }
+
     #[test]
     fn test_cron_job_info() {
-        let job = CronJobInfo {
-            id: "job-1".to_string(),
-            schedule: "0 * * * *".to_string(),
-            description: Some("Hourly job".to_string()),
-            agent_id: "agent-1".to_string(),
-            prompt: "Check status".to_string(),
-            enabled: true,
-            next_run: None,
-            last_run: None,
-            run_count: 0,
-        };
+        let job = smartassist_cron::JobBuilder::new()
+            .schedule("0 * * * * *")
+            .agent_id("agent-1")
+            .prompt("Check status")
+            .build()
+            .unwrap();
 
-        let json = serde_json::to_value(&job).unwrap();
-        assert_eq!(json["schedule"], "0 * * * *");
-    }
-
-    #[test]
-    fn test_cron_next_run_valid() {
-        // Standard 7-field cron: sec min hour day month weekday year
-        let next = CronScheduler::next_run("0 0 * * * * *");
-        assert!(next.is_some(), "Expected a next run time for a valid cron expression");
-    }
-
-    #[test]
-    fn test_cron_next_run_invalid() {
-        let next = CronScheduler::next_run("not-a-cron");
-        assert!(next.is_none());
+        let info = job_to_info(&job);
+        assert_eq!(info.schedule, "0 * * * * *");
+        assert_eq!(info.agent_id, "agent-1");
+        assert!(info.next_run.is_some());
     }
 
     #[tokio::test]
-    async fn test_scheduler_add_list_remove() {
-        let scheduler = CronScheduler::new();
+    async fn test_cron_list_handler() {
+        let ctx = test_context();
+        let handler = CronListHandler::new(ctx.clone());
 
-        let job = CronJob {
-            id: "j1".to_string(),
-            schedule: "0 0 * * * * *".to_string(),
-            description: None,
-            agent_id: "agent".to_string(),
-            prompt: "hello".to_string(),
-            enabled: true,
-            created_at: chrono::Utc::now(),
-            last_run: None,
-            run_count: 0,
-        };
-
-        scheduler.add(job).await.unwrap();
-
-        let jobs = scheduler.list().await;
-        assert_eq!(jobs.len(), 1);
-        assert_eq!(jobs[0].id, "j1");
-
-        let removed = scheduler.remove("j1").await;
-        assert!(removed.is_some());
-        assert!(scheduler.list().await.is_empty());
+        // Empty list initially
+        let result = handler.call(None).await.unwrap();
+        assert_eq!(result["count"], 0);
     }
 
     #[tokio::test]
-    async fn test_scheduler_add_invalid_cron() {
-        let scheduler = CronScheduler::new();
+    async fn test_cron_add_and_list() {
+        let ctx = test_context();
+        let add_handler = CronAddHandler::new(ctx.clone());
+        let list_handler = CronListHandler::new(ctx.clone());
 
-        let job = CronJob {
-            id: "bad".to_string(),
-            schedule: "not valid".to_string(),
-            description: None,
-            agent_id: "agent".to_string(),
-            prompt: "hello".to_string(),
-            enabled: true,
-            created_at: chrono::Utc::now(),
-            last_run: None,
-            run_count: 0,
-        };
+        let params = serde_json::json!({
+            "schedule": "0 0 * * * *",
+            "agent_id": "agent-1",
+            "prompt": "hello",
+        });
 
-        let result = scheduler.add(job).await;
+        let result = add_handler.call(Some(params)).await.unwrap();
+        assert!(result["created"].as_bool().unwrap());
+        let job_id = result["id"].as_str().unwrap();
+        assert!(!job_id.is_empty());
+
+        let list = list_handler.call(None).await.unwrap();
+        assert_eq!(list["count"], 1);
+    }
+
+    #[tokio::test]
+    async fn test_cron_add_invalid_schedule() {
+        let ctx = test_context();
+        let handler = CronAddHandler::new(ctx);
+
+        let params = serde_json::json!({
+            "schedule": "not valid",
+            "agent_id": "agent-1",
+            "prompt": "hello",
+        });
+
+        let result = handler.call(Some(params)).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
-    async fn test_scheduler_record_run() {
-        let scheduler = CronScheduler::new();
+    async fn test_cron_remove() {
+        let ctx = test_context();
+        let add_handler = CronAddHandler::new(ctx.clone());
+        let remove_handler = CronRemoveHandler::new(ctx.clone());
 
-        let job = CronJob {
-            id: "j1".to_string(),
-            schedule: "0 0 * * * * *".to_string(),
-            description: None,
-            agent_id: "agent".to_string(),
-            prompt: "hello".to_string(),
-            enabled: true,
-            created_at: chrono::Utc::now(),
-            last_run: None,
-            run_count: 0,
-        };
+        let params = serde_json::json!({
+            "schedule": "0 0 * * * *",
+            "agent_id": "agent-1",
+            "prompt": "hello",
+        });
 
-        scheduler.add(job).await.unwrap();
+        let result = add_handler.call(Some(params)).await.unwrap();
+        let job_id = result["id"].as_str().unwrap().to_string();
 
-        let updated = scheduler.record_run("j1").await.unwrap();
-        assert_eq!(updated.run_count, 1);
-        assert!(updated.last_run.is_some());
-
-        let updated2 = scheduler.record_run("j1").await.unwrap();
-        assert_eq!(updated2.run_count, 2);
+        let remove = remove_handler.call(Some(serde_json::json!({"id": job_id}))).await.unwrap();
+        assert!(remove["removed"].as_bool().unwrap());
     }
 
     #[tokio::test]
-    async fn test_scheduler_update() {
-        let scheduler = CronScheduler::new();
+    async fn test_cron_run() {
+        let ctx = test_context();
+        let add_handler = CronAddHandler::new(ctx.clone());
+        let run_handler = CronRunHandler::new(ctx.clone());
 
-        let job = CronJob {
-            id: "j1".to_string(),
-            schedule: "0 0 * * * * *".to_string(),
-            description: None,
-            agent_id: "agent".to_string(),
-            prompt: "hello".to_string(),
-            enabled: true,
-            created_at: chrono::Utc::now(),
-            last_run: None,
-            run_count: 0,
-        };
+        let params = serde_json::json!({
+            "schedule": "0 0 * * * *",
+            "agent_id": "agent-1",
+            "prompt": "hello",
+        });
 
-        scheduler.add(job).await.unwrap();
+        let result = add_handler.call(Some(params)).await.unwrap();
+        let job_id = result["id"].as_str().unwrap().to_string();
 
-        scheduler
-            .update("j1", None, None, Some("new prompt".to_string()), Some(false))
+        let run = run_handler.call(Some(serde_json::json!({"id": job_id}))).await.unwrap();
+        assert!(run["triggered"].as_bool().unwrap());
+        assert_eq!(run["run_count"], 1);
+        assert!(run["last_run"].is_string());
+    }
+
+    #[tokio::test]
+    async fn test_cron_update() {
+        let ctx = test_context();
+        let add_handler = CronAddHandler::new(ctx.clone());
+        let update_handler = CronUpdateHandler::new(ctx.clone());
+        let list_handler = CronListHandler::new(ctx.clone());
+
+        let params = serde_json::json!({
+            "schedule": "0 0 * * * *",
+            "agent_id": "agent-1",
+            "prompt": "hello",
+        });
+
+        let result = add_handler.call(Some(params)).await.unwrap();
+        let job_id = result["id"].as_str().unwrap().to_string();
+
+        let update = update_handler
+            .call(Some(serde_json::json!({
+                "id": job_id,
+                "prompt": "new prompt",
+                "enabled": false,
+            })))
             .await
             .unwrap();
+        assert!(update["updated"].as_bool().unwrap());
 
-        let j = scheduler.get("j1").await.unwrap();
-        assert_eq!(j.prompt, "new prompt");
-        assert!(!j.enabled);
+        let list = list_handler.call(None).await.unwrap();
+        let jobs = list["jobs"].as_array().unwrap();
+        assert_eq!(jobs[0]["prompt"], "new prompt");
+        assert_eq!(jobs[0]["enabled"], false);
+    }
+
+    #[tokio::test]
+    async fn test_cron_status() {
+        let ctx = test_context();
+        let handler = CronStatusHandler::new(ctx);
+
+        let result = handler.call(None).await.unwrap();
+        assert_eq!(result["enabled"], true);
+        assert_eq!(result["job_count"], 0);
+    }
+
+    #[tokio::test]
+    async fn test_wake_handler() {
+        let ctx = test_context();
+        let handler = WakeHandler::new(ctx);
+
+        let result = handler.call(None).await.unwrap();
+        assert!(result["woke"].as_bool().unwrap());
+        assert!(result["timestamp"].is_string());
     }
 }

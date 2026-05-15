@@ -214,6 +214,11 @@ impl Scheduler {
         }
     }
 
+    /// Access the underlying job store.
+    pub fn store(&self) -> &Arc<dyn JobStore> {
+        &self.store
+    }
+
     /// Run one scheduler tick: find due jobs, execute them, update next_run.
     pub async fn tick(&self) -> Result<usize, CronError> {
         let now = chrono::Utc::now();

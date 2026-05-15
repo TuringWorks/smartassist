@@ -25,13 +25,14 @@ use crate::methods::MethodRegistry;
 use smartassist_providers::Provider;
 use smartassist_agent::{ToolExecutor, ToolRegistry};
 use std::sync::Arc;
+use std::time::Duration;
 
 pub use agent::{AgentHandler, AgentStreamHandler, AgentStopHandler, AgentStatusHandler};
 pub use chat::{ChatAbortHandler, ChatHandler, ChatHistoryHandler};
 pub use config::{ConfigDiffHandler, ConfigGetHandler, ConfigPatchHandler, ConfigReloadHandler, ConfigSchemaHandler, ConfigSetHandler};
 pub use cron::{
     CronAddHandler, CronListHandler, CronRemoveHandler, CronRunHandler, CronRunsHandler,
-    CronScheduler, CronStatusHandler, CronUpdateHandler, WakeHandler,
+    CronStatusHandler, CronUpdateHandler, WakeHandler,
 };
 pub use device::{
     DevicePairApproveHandler, DevicePairInitiateHandler, DevicePairListHandler,
@@ -445,7 +446,7 @@ pub struct HandlerContext {
     pub approval_queue: Arc<ApprovalQueue>,
 
     /// Cron job scheduler.
-    pub cron_scheduler: Arc<CronScheduler>,
+    pub cron_scheduler: Arc<smartassist_cron::Scheduler>,
 
     /// Path to config file for persistence.
     pub config_path: Option<std::path::PathBuf>,
@@ -487,7 +488,11 @@ impl Default for HandlerContext {
             provider: None,
             default_model: "claude-sonnet-4-20250514".to_string(),
             approval_queue: Arc::new(ApprovalQueue::new()),
-            cron_scheduler: Arc::new(CronScheduler::new()),
+            cron_scheduler: Arc::new(smartassist_cron::Scheduler::new(
+                Arc::new(smartassist_cron::MemoryJobStore::new()),
+                Arc::new(smartassist_cron::LogExecutor),
+                Duration::from_secs(60),
+            )),
             config_path: None,
             tool_registry: None,
             tool_executor: None,
