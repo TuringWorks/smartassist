@@ -168,7 +168,7 @@ impl ChannelManager {
     /// Route a message to an agent.
     pub async fn route_message(&self, message: &InboundMessage) -> Result<RouteMatch> {
         let router = self.router.read().await;
-        router.route(message)
+        router.route(message).await
     }
 
     // --- Message Handler ---
@@ -352,8 +352,11 @@ impl ChannelManager {
                                         }
 
                                         // Route the message
-                                        let router_guard = router.read().await;
-                                        match router_guard.route(&message) {
+                                        let route_result = {
+                                            let router_guard = router.read().await;
+                                            router_guard.route(&message).await
+                                        };
+                                        match route_result {
                                             Ok(route) => {
                                                 let handler_guard = handler.read().await;
                                                 if let Some(ref h) = *handler_guard {

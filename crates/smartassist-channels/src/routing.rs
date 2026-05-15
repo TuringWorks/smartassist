@@ -1,11 +1,144 @@
 //! Message routing for channels.
+//!
+//! Supports rule-based routing with advanced conditions including peer kind
+//! matching, plus session and thread binding so conversations stick to the
+//! same agent once routed.
 
 use crate::error::ChannelError;
 use crate::Result;
 use smartassist_core::types::{AgentId, ChatType, InboundMessage};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use tracing::debug;
+
+/// Kind of peer that sent a message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PeerKind {
+    /// Regular user.
+    User,
+
+    /// Bot account.
+    Bot,
+
+    /// Administrator or privileged user.
+    Admin,
+}
+
+/// Registry for session and thread bindings.
+///
+/// Once a message from a chat or thread is routed to an agent, subsequent
+/// messages are automatically sent to the same agent without re-evaluating
+/// rules.
+#[derive(Debug, Clone, Default)]
+pub struct BindingRegistry {
+    /// Maps `(channel, account, chat_id)` -> `AgentId`.
+    session_bindings: Arc<RwLock<HashMap<String, AgentId>>>,
+
+    /// Maps `(channel, account, chat_id, thread_id)` -> `AgentId`.
+    thread_bindings: Arc<RwLock<HashMap<String, AgentId>>>,
+}
+
+impl BindingRegistry {
+    /// Create a new binding registry.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Bind a chat session to an agent.
+    pub async fn bind_session(
+        &self,
+        channel: &str,
+        account: &str,
+        chat_id: &str,
+        agent_id: AgentId,
+    ) {
+        let key = format!("{}:{}:{}", channel, account, chat_id);
+        let mut map = self.session_bindings.write().await;
+        map.insert(key, agent_id);
+    }
+
+    /// Bind a thread to an agent.
+    pub async fn bind_thread(
+        &self,
+        channel: &str,
+        account: &str,
+        chat_id: &str,
+        thread_id: &str,
+        agent_id: AgentId,
+    ) {
+        let key = format!("{}:{}:{}:{}", channel, account, chat_id, thread_id);
+        let mut map = self.thread_bindings.write().await;
+        map.insert(key, agent_id);
+    }
+
+    /// Look up the bound agent for a chat session.
+    pub async fn resolve_session(
+        &self,
+        channel: &str,
+        account: &str,
+        chat_id: &str,
+    ) -> Option<AgentId> {
+        let key = format!("{}:{}:{}", channel, account, chat_id);
+        let map = self.session_bindings.read().await;
+        map.get(&key).cloned()
+    }
+
+    /// Look up the bound agent for a thread.
+    pub async fn resolve_thread(
+        &self,
+        channel: &str,
+        account: &str,
+        chat_id: &str,
+        thread_id: &str,
+    ) -> Option<AgentId> {
+        let key = format!("{}:{}:{}:{}", channel, account, chat_id, thread_id);
+        let map = self.thread_bindings.read().await;
+        map.get(&key).cloned()
+    }
+
+    /// Remove a session binding.
+    pub async fn unbind_session(
+        &self,
+        channel: &str,
+        account: &str,
+        chat_id: &str,
+    ) {
+        let key = format!("{}:{}:{}", channel, account, chat_id);
+        let mut map = self.session_bindings.write().await;
+        map.remove(&key);
+    }
+
+    /// Remove a thread binding.
+    pub async fn unbind_thread(
+        &self,
+        channel: &str,
+        account: &str,
+        chat_id: &str,
+        thread_id: &str,
+    ) {
+        let key = format!("{}:{}:{}:{}", channel, account, chat_id, thread_id);
+        let mut map = self.thread_bindings.write().await;
+        map.remove(&key);
+    }
+
+    /// Clear all bindings.
+    pub async fn clear_all(&self) {
+        let mut sessions = self.session_bindings.write().await;
+        sessions.clear();
+        let mut threads = self.thread_bindings.write().await;
+        threads.clear();
+    }
+
+    /// Count total bindings.
+    pub async fn len(&self) -> usize {
+        let sessions = self.session_bindings.read().await;
+        let threads = self.thread_bindings.read().await;
+        sessions.len() + threads.len()
+    }
+}
 
 /// Router for directing messages to agents.
 #[derive(Debug)]
@@ -18,6 +151,9 @@ pub struct Router {
 
     /// Cache of recent routing decisions.
     cache: HashMap<String, RouteMatch>,
+
+    /// Session and thread bindings.
+    bindings: BindingRegistry,
 }
 
 impl Default for Router {
@@ -33,7 +169,14 @@ impl Router {
             rules: Vec::new(),
             default_agent: None,
             cache: HashMap::new(),
+            bindings: BindingRegistry::new(),
         }
+    }
+
+    /// Create a router with an existing binding registry.
+    pub fn with_bindings(mut self, bindings: BindingRegistry) -> Self {
+        self.bindings = bindings;
+        self
     }
 
     /// Set the default agent.
@@ -53,23 +196,100 @@ impl Router {
         self.rules.retain(|r| r.id != rule_id);
     }
 
-    /// Route a message to an agent.
-    pub fn route(&self, message: &InboundMessage) -> Result<RouteMatch> {
-        // Check cache first
-        let cache_key = self.cache_key(message);
-        if let Some(cached) = self.cache.get(&cache_key) {
-            return Ok(cached.clone());
-        }
+    /// Get a reference to the binding registry.
+    pub fn bindings(&self) -> &BindingRegistry {
+        &self.bindings
+    }
 
+    /// Route a message to an agent.
+    ///
+    /// Resolution order:
+    /// 1. Thread binding (if message has a thread_id)
+    /// 2. Session binding (chat-level)
+    /// 3. Routing rules (highest priority first)
+    /// 4. If a matching rule has `bind_session`/`bind_thread`, create the binding
+    /// 5. Default agent
+    pub async fn route(&self,
+        message: &InboundMessage,
+    ) -> Result<RouteMatch> {
         let sender_name = message.sender.display_name.as_deref().unwrap_or(&message.sender.id);
 
-        // Try each rule in priority order
+        // 1. Thread binding
+        if let Some(ref thread) = message.thread {
+            if let Some(agent_id) = self
+                .bindings
+                .resolve_thread(&message.channel, &message.account_id, &message.chat.id, &thread.id)
+                .await
+            {
+                debug!(
+                    "Routed message from {} to agent {} (thread bound)",
+                    sender_name, agent_id
+                );
+                return Ok(RouteMatch {
+                    agent_id,
+                    rule_id: None,
+                    reason: MatchReason::ThreadBound,
+                    binding_created: false,
+                });
+            }
+        }
+
+        // 2. Session binding
+        if let Some(agent_id) = self
+            .bindings
+            .resolve_session(&message.channel, &message.account_id, &message.chat.id)
+            .await
+        {
+            debug!(
+                "Routed message from {} to agent {} (session bound)",
+                sender_name, agent_id
+            );
+            return Ok(RouteMatch {
+                agent_id,
+                rule_id: None,
+                reason: MatchReason::SessionBound,
+                binding_created: false,
+            });
+        }
+
+        // 3. Evaluate rules
         for rule in &self.rules {
             if rule.matches(message) {
+                let agent_id = rule.agent_id.clone();
+
+                // 4. Create bindings if requested
+                let mut binding_created = false;
+                if rule.conditions.bind_session {
+                    self.bindings
+                        .bind_session(
+                            &message.channel,
+                            &message.account_id,
+                            &message.chat.id,
+                            agent_id.clone(),
+                        )
+                        .await;
+                    binding_created = true;
+                }
+                if rule.conditions.bind_thread {
+                    if let Some(ref thread) = message.thread {
+                        self.bindings
+                            .bind_thread(
+                                &message.channel,
+                                &message.account_id,
+                                &message.chat.id,
+                                &thread.id,
+                                agent_id.clone(),
+                            )
+                            .await;
+                        binding_created = true;
+                    }
+                }
+
                 let route_match = RouteMatch {
-                    agent_id: rule.agent_id.clone(),
+                    agent_id,
                     rule_id: Some(rule.id.clone()),
                     reason: MatchReason::Rule(rule.id.clone()),
+                    binding_created,
                 };
                 debug!(
                     "Routed message from {} to agent {} (rule: {})",
@@ -81,12 +301,13 @@ impl Router {
             }
         }
 
-        // Fall back to default agent
+        // 5. Fall back to default agent
         if let Some(ref default) = self.default_agent {
             let route_match = RouteMatch {
                 agent_id: default.clone(),
                 rule_id: None,
                 reason: MatchReason::Default,
+                binding_created: false,
             };
             debug!(
                 "Routed message from {} to default agent {}",
@@ -105,16 +326,6 @@ impl Router {
     /// Clear the routing cache.
     pub fn clear_cache(&mut self) {
         self.cache.clear();
-    }
-
-    /// Generate a cache key for a message.
-    fn cache_key(&self, message: &InboundMessage) -> String {
-        format!(
-            "{}:{}:{}",
-            message.channel,
-            message.account_id,
-            message.sender.id
-        )
     }
 }
 
@@ -171,6 +382,12 @@ impl RouteRule {
         self
     }
 
+    /// Add a peer kind condition.
+    pub fn match_peer_kind(mut self, kind: PeerKind) -> Self {
+        self.conditions.peer_kind = Some(kind);
+        self
+    }
+
     /// Add a guild/server condition.
     pub fn match_guild(mut self, guild: impl Into<String>) -> Self {
         self.conditions.guild = Some(guild.into());
@@ -180,6 +397,18 @@ impl RouteRule {
     /// Add a chat type condition.
     pub fn match_chat_type(mut self, chat_type: ChatType) -> Self {
         self.conditions.chat_type = Some(chat_type);
+        self
+    }
+
+    /// Bind the session (chat) to the target agent when this rule matches.
+    pub fn with_session_binding(mut self) -> Self {
+        self.conditions.bind_session = true;
+        self
+    }
+
+    /// Bind the thread to the target agent when this rule matches.
+    pub fn with_thread_binding(mut self) -> Self {
+        self.conditions.bind_thread = true;
         self
     }
 
@@ -202,6 +431,19 @@ impl RouteRule {
         // Check peer
         if let Some(ref peer) = self.conditions.peer {
             if message.sender.id != *peer {
+                return false;
+            }
+        }
+
+        // Check peer kind
+        if let Some(ref peer_kind) = self.conditions.peer_kind {
+            let actual = if message.sender.is_bot {
+                PeerKind::Bot
+            } else {
+                // Admins cannot be detected from SenderInfo alone; default to User.
+                PeerKind::User
+            };
+            if actual != *peer_kind {
                 return false;
             }
         }
@@ -239,6 +481,10 @@ pub struct RouteConditions {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub peer: Option<String>,
 
+    /// Match peer kind (user, bot, admin).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub peer_kind: Option<PeerKind>,
+
     /// Match specific guild/server.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub guild: Option<String>,
@@ -246,6 +492,14 @@ pub struct RouteConditions {
     /// Match specific chat type.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub chat_type: Option<ChatType>,
+
+    /// Create a session binding when this rule matches.
+    #[serde(default)]
+    pub bind_session: bool,
+
+    /// Create a thread binding when this rule matches.
+    #[serde(default)]
+    pub bind_thread: bool,
 }
 
 /// Result of routing a message.
@@ -259,6 +513,9 @@ pub struct RouteMatch {
 
     /// Reason for the match.
     pub reason: MatchReason,
+
+    /// Whether a new binding was created as part of this route.
+    pub binding_created: bool,
 }
 
 /// Reason for a route match.
@@ -272,6 +529,12 @@ pub enum MatchReason {
 
     /// Used cached routing.
     Cached,
+
+    /// Resolved via session binding.
+    SessionBound,
+
+    /// Resolved via thread binding.
+    ThreadBound,
 }
 
 /// Builder for creating routers.
@@ -307,7 +570,7 @@ impl RouterBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use smartassist_core::types::{ChatInfo, MessageId, SenderInfo};
+    use smartassist_core::types::{ChatInfo, MessageId, SenderInfo, ThreadInfo};
 
     fn test_message(channel: &str, sender_id: &str) -> InboundMessage {
         InboundMessage {
@@ -336,8 +599,23 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_routing_with_rules() {
+    fn test_message_with_thread(channel: &str, sender_id: &str, thread_id: &str) -> InboundMessage {
+        let mut msg = test_message(channel, sender_id);
+        msg.thread = Some(ThreadInfo {
+            id: thread_id.to_string(),
+            parent_id: None,
+        });
+        msg
+    }
+
+    fn test_message_from_bot(channel: &str, sender_id: &str) -> InboundMessage {
+        let mut msg = test_message(channel, sender_id);
+        msg.sender.is_bot = true;
+        msg
+    }
+
+    #[tokio::test]
+    async fn test_routing_with_rules() {
         let mut router = Router::new().with_default_agent(AgentId::new("default"));
 
         router.add_rule(
@@ -354,22 +632,22 @@ mod tests {
 
         // Test telegram routing
         let telegram_msg = test_message("telegram", "user1");
-        let result = router.route(&telegram_msg).unwrap();
+        let result = router.route(&telegram_msg).await.unwrap();
         assert_eq!(result.agent_id.as_str(), "telegram_agent");
 
         // Test discord routing
         let discord_msg = test_message("discord", "user2");
-        let result = router.route(&discord_msg).unwrap();
+        let result = router.route(&discord_msg).await.unwrap();
         assert_eq!(result.agent_id.as_str(), "discord_agent");
 
         // Test default routing
         let other_msg = test_message("slack", "user3");
-        let result = router.route(&other_msg).unwrap();
+        let result = router.route(&other_msg).await.unwrap();
         assert_eq!(result.agent_id.as_str(), "default");
     }
 
-    #[test]
-    fn test_rule_priority() {
+    #[tokio::test]
+    async fn test_rule_priority() {
         let mut router = Router::new();
 
         router.add_rule(
@@ -385,16 +663,168 @@ mod tests {
         );
 
         let msg = test_message("telegram", "user1");
-        let result = router.route(&msg).unwrap();
+        let result = router.route(&msg).await.unwrap();
         assert_eq!(result.agent_id.as_str(), "agent2");
     }
 
-    #[test]
-    fn test_no_route_error() {
+    #[tokio::test]
+    async fn test_no_route_error() {
         let router = Router::new(); // No default, no rules
 
         let msg = test_message("telegram", "user1");
-        let result = router.route(&msg);
+        let result = router.route(&msg).await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_session_binding_routes_subsequent_messages() {
+        let mut router = Router::new();
+        router.add_rule(
+            RouteRule::new("bind_rule", AgentId::new("agent_a"))
+                .match_channel("telegram")
+                .with_session_binding(),
+        );
+
+        let msg = test_message("telegram", "user1");
+        let result = router.route(&msg).await.unwrap();
+        assert_eq!(result.agent_id.as_str(), "agent_a");
+        assert!(result.binding_created);
+        assert!(matches!(result.reason, MatchReason::Rule(_)));
+
+        // Second message from same chat should use binding, not rule re-evaluation
+        let msg2 = test_message("telegram", "user2");
+        let result2 = router.route(&msg2).await.unwrap();
+        assert_eq!(result2.agent_id.as_str(), "agent_a");
+        assert!(!result2.binding_created);
+        assert!(matches!(result2.reason, MatchReason::SessionBound));
+    }
+
+    #[tokio::test]
+    async fn test_thread_binding_takes_precedence_over_session() {
+        let mut router = Router::new();
+        router.add_rule(
+            RouteRule::new("bind_both", AgentId::new("agent_b"))
+                .match_channel("slack")
+                .with_session_binding()
+                .with_thread_binding(),
+        );
+
+        let msg = test_message_with_thread("slack", "user1", "thread_1");
+        let result = router.route(&msg).await.unwrap();
+        assert_eq!(result.agent_id.as_str(), "agent_b");
+        assert!(result.binding_created);
+
+        // Same chat + same thread -> thread binding takes precedence over session binding
+        let msg2 = test_message_with_thread("slack", "user2", "thread_1");
+        let result2 = router.route(&msg2).await.unwrap();
+        assert_eq!(result2.agent_id.as_str(), "agent_b");
+        assert!(!result2.binding_created);
+        assert!(matches!(result2.reason, MatchReason::ThreadBound));
+
+        // Same chat, no thread -> session binding
+        let msg3 = test_message("slack", "user3");
+        let result3 = router.route(&msg3).await.unwrap();
+        assert_eq!(result3.agent_id.as_str(), "agent_b");
+        assert!(!result3.binding_created);
+        assert!(matches!(result3.reason, MatchReason::SessionBound));
+    }
+
+    #[tokio::test]
+    async fn test_peer_kind_matching() {
+        let mut router = Router::new();
+        router.add_rule(
+            RouteRule::new("bot_rule", AgentId::new("bot_handler"))
+                .match_channel("discord")
+                .match_peer_kind(PeerKind::Bot),
+        );
+        router.add_rule(
+            RouteRule::new("user_rule", AgentId::new("user_handler"))
+                .match_channel("discord")
+                .match_peer_kind(PeerKind::User),
+        );
+
+        let bot_msg = test_message_from_bot("discord", "bot1");
+        let result = router.route(&bot_msg).await.unwrap();
+        assert_eq!(result.agent_id.as_str(), "bot_handler");
+
+        let user_msg = test_message("discord", "user1");
+        let result = router.route(&user_msg).await.unwrap();
+        assert_eq!(result.agent_id.as_str(), "user_handler");
+    }
+
+    #[tokio::test]
+    async fn test_binding_registry_resolve_and_unbind() {
+        let registry = BindingRegistry::new();
+
+        registry
+            .bind_session("telegram", "acct1", "chat1", AgentId::new("agent_x"))
+            .await;
+
+        let resolved = registry.resolve_session("telegram", "acct1", "chat1").await;
+        assert_eq!(resolved.unwrap().as_str(), "agent_x");
+
+        registry.unbind_session("telegram", "acct1", "chat1").await;
+        let resolved = registry.resolve_session("telegram", "acct1", "chat1").await;
+        assert!(resolved.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_binding_registry_thread_operations() {
+        let registry = BindingRegistry::new();
+
+        registry
+            .bind_thread("slack", "acct2", "chat2", "t1", AgentId::new("agent_y"))
+            .await;
+
+        let resolved = registry.resolve_thread("slack", "acct2", "chat2", "t1").await;
+        assert_eq!(resolved.unwrap().as_str(), "agent_y");
+
+        // Different thread should not resolve
+        let other = registry.resolve_thread("slack", "acct2", "chat2", "t2").await;
+        assert!(other.is_none());
+
+        registry.clear_all().await;
+        assert_eq!(registry.len().await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_router_with_external_binding_registry() {
+        let bindings = BindingRegistry::new();
+        bindings
+            .bind_session("web", "test_account", "chat3", AgentId::new("agent_z"))
+            .await;
+
+        let router = Router::new().with_bindings(bindings);
+        let mut msg = test_message("web", "user9");
+        msg.chat.id = "chat3".to_string();
+        let result = router.route(&msg).await.unwrap();
+        assert_eq!(result.agent_id.as_str(), "agent_z");
+        assert!(matches!(result.reason, MatchReason::SessionBound));
+    }
+
+    #[test]
+    fn test_peer_kind_serde() {
+        let json = serde_json::to_string(&PeerKind::Bot).unwrap();
+        assert_eq!(json, "\"bot\"");
+        let parsed: PeerKind = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, PeerKind::Bot);
+    }
+
+    #[tokio::test]
+    async fn test_rule_without_binding_does_not_create_binding() {
+        let mut router = Router::new();
+        router.add_rule(
+            RouteRule::new("no_bind", AgentId::new("agent_nb"))
+                .match_channel("telegram"),
+        );
+
+        let msg = test_message("telegram", "user1");
+        let result = router.route(&msg).await.unwrap();
+        assert!(!result.binding_created);
+
+        // Second message should re-evaluate rule (no binding stored)
+        let msg2 = test_message("telegram", "user1");
+        let result2 = router.route(&msg2).await.unwrap();
+        assert!(matches!(result2.reason, MatchReason::Rule(_)));
     }
 }
