@@ -8,7 +8,7 @@ use crate::error::GatewayError;
 use crate::methods::MethodHandler;
 use crate::Result;
 use async_trait::async_trait;
-use smartassist_agent::ToolContext;
+use smartassist_agent::{CompressionEngine, ToolContext};
 use smartassist_core::types::{ContentBlock, Message as CoreMessage, Role, ToolResult};
 use smartassist_providers::{ChatOptions, ErrorClassifier, Message, StopReason, ToolChoice, ToolDefinition};
 use serde::{Deserialize, Serialize};
@@ -219,11 +219,33 @@ impl MethodHandler for AgentHandler {
                 debug!("Agent turn {}/{} for session {}", turn + 1, max_turns, session_key);
 
                 // Build messages and get tool definitions
-                let messages = {
+                let mut messages = {
                     let sessions = self.context.sessions.read().await;
                     let session = sessions.get(&session_key).unwrap();
                     Self::build_messages(session, system_prompt)
                 };
+
+                // Apply context compression if configured
+                if let Some(ref config) = self.context.compression_config {
+                    let engine = CompressionEngine::new(config.clone());
+                    if engine.should_compact(&messages) {
+                        debug!("Context compression triggered for session {}", session_key);
+                        match engine.compact(&messages).await {
+                            Ok((compacted, result)) => {
+                                if let Some(r) = result {
+                                    debug!(
+                                        "Compressed: {} -> {} messages",
+                                        r.messages_before, r.messages_after
+                                    );
+                                }
+                                messages = compacted;
+                            }
+                            Err(e) => {
+                                warn!("Context compression failed, using original messages: {}", e);
+                            }
+                        }
+                    }
+                }
 
                 let tool_defs = self.get_tool_definitions(tool_filter).await;
 

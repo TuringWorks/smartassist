@@ -96,11 +96,33 @@ impl MethodHandler for ChatHandler {
         }
 
         // Build provider messages from session history
-        let messages = {
+        let mut messages = {
             let sessions = self.context.sessions.read().await;
             let session = sessions.get(&session_key).unwrap();
             session.messages.clone()
         };
+
+        // Apply context compression if configured
+        if let Some(ref config) = self.context.compression_config {
+            let engine = smartassist_agent::CompressionEngine::new(config.clone());
+            if engine.should_compact(&messages) {
+                debug!("Context compression triggered for session {}", session_key);
+                match engine.compact(&messages).await {
+                    Ok((compacted, result)) => {
+                        if let Some(r) = result {
+                            debug!(
+                                "Compressed: {} -> {} messages",
+                                r.messages_before, r.messages_after
+                            );
+                        }
+                        messages = compacted;
+                    }
+                    Err(e) => {
+                        warn!("Context compression failed, using original messages: {}", e);
+                    }
+                }
+            }
+        }
 
         // Try to use the provider if available
         let (response_message, usage) = if let Some(provider) = &self.context.provider {
