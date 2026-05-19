@@ -16,9 +16,10 @@
 //! ```
 
 use crate::{
-    ChatOptions, ChatResponse, CompletionStream, Message, MessageContent, MessageRole, ModelInfo,
-    Provider, ProviderCapabilities, ProviderError, Result, StopReason, StreamEvent, TokenCount,
-    ToolUse, Usage,
+    ChatOptions, ChatResponse, CompletionStream, ContentBlock, ImageSourceType,
+    Message, MessageContent, ModelCapabilities, ModelInfo, ModelPricing, Provider,
+    ProviderCapabilities, ProviderError, Result, Role, StopReason, StreamEvent, TokenCount,
+    TokenUsage, ToolChoice, ToolDefinition,
 };
 use async_trait::async_trait;
 use eventsource_stream::Eventsource;
@@ -110,34 +111,64 @@ impl AnthropicProvider {
 
         for msg in messages {
             match msg.role {
-                MessageRole::System => {
+                Role::System => {
                     // Anthropic handles system message separately
-                    if let Some(text) = msg.text() {
+                    if let Some(text) = msg.content.as_text() {
                         system = Some(text.to_string());
                     }
                 }
-                MessageRole::User => {
+                Role::User => {
                     converted.push(AnthropicMessage {
                         role: "user".to_string(),
                         content: self.convert_content(&msg.content)?,
                     });
                 }
-                MessageRole::Assistant => {
+                Role::Assistant => {
                     converted.push(AnthropicMessage {
                         role: "assistant".to_string(),
                         content: self.convert_content(&msg.content)?,
                     });
                 }
-                MessageRole::Tool => {
-                    // Tool results are handled as user messages with tool_result content
-                    if let Some(tool_call_id) = &msg.tool_call_id {
-                        converted.push(AnthropicMessage {
-                            role: "user".to_string(),
-                            content: AnthropicContent::Parts(vec![AnthropicContentPart::ToolResult {
-                                tool_use_id: tool_call_id.clone(),
-                                content: msg.text().unwrap_or("").to_string(),
-                            }]),
-                        });
+                Role::Tool => {
+                    // Tool results are sent as user messages with tool_result content blocks.
+                    // The tool_use_id may be inside ContentBlock::ToolResult (canonical
+                    // form from Message::tool_result) or in the message's tool_use_id
+                    // field (for backward compatibility).
+                    match &msg.content {
+                        MessageContent::Blocks(blocks) => {
+                            let parts: Vec<AnthropicContentPart> = blocks
+                                .iter()
+                                .filter_map(|block| match block {
+                                    ContentBlock::ToolResult { tool_use_id, content, .. } => {
+                                        Some(AnthropicContentPart::ToolResult {
+                                            tool_use_id: tool_use_id.clone(),
+                                            content: content.clone(),
+                                        })
+                                    }
+                                    _ => None,
+                                })
+                                .collect();
+                            if !parts.is_empty() {
+                                converted.push(AnthropicMessage {
+                                    role: "user".to_string(),
+                                    content: AnthropicContent::Parts(parts),
+                                });
+                            }
+                        }
+                        MessageContent::Text(text) => {
+                            // Fallback: plain text tool result with tool_use_id from message
+                            if let Some(tool_use_id) = &msg.tool_use_id {
+                                converted.push(AnthropicMessage {
+                                    role: "user".to_string(),
+                                    content: AnthropicContent::Parts(vec![
+                                        AnthropicContentPart::ToolResult {
+                                            tool_use_id: tool_use_id.clone(),
+                                            content: text.clone(),
+                                        },
+                                    ]),
+                                });
+                            }
+                        }
                     }
                 }
             }
@@ -150,37 +181,40 @@ impl AnthropicProvider {
     fn convert_content(&self, content: &MessageContent) -> Result<AnthropicContent> {
         match content {
             MessageContent::Text(s) => Ok(AnthropicContent::Text(s.clone())),
-            MessageContent::Parts(parts) => {
+            MessageContent::Blocks(blocks) => {
                 let mut converted = Vec::new();
-                for part in parts {
-                    match part {
-                        crate::ContentPart::Text(s) => {
-                            converted.push(AnthropicContentPart::Text { text: s.clone() });
+                for block in blocks {
+                    match block {
+                        ContentBlock::Text { text } => {
+                            converted.push(AnthropicContentPart::Text { text: text.clone() });
                         }
-                        crate::ContentPart::Image(img) => {
+                        ContentBlock::Image { source } => {
                             converted.push(AnthropicContentPart::Image {
-                                source: ImageSource {
-                                    source_type: match img.source_type {
-                                        crate::ImageSourceType::Base64 => "base64".to_string(),
-                                        crate::ImageSourceType::Url => "url".to_string(),
+                                source: ApiImageSource {
+                                    source_type: match source.source_type {
+                                        ImageSourceType::Base64 => "base64".to_string(),
+                                        ImageSourceType::Url => "url".to_string(),
                                     },
-                                    media_type: img.media_type.clone(),
-                                    data: img.data.clone(),
+                                    media_type: source.media_type.clone(),
+                                    data: source.data.clone(),
                                 },
                             });
                         }
-                        crate::ContentPart::ToolUse(tool) => {
+                        ContentBlock::ToolUse { id, name, input } => {
                             converted.push(AnthropicContentPart::ToolUse {
-                                id: tool.id.clone(),
-                                name: tool.name.clone(),
-                                input: tool.input.clone(),
+                                id: id.clone(),
+                                name: name.clone(),
+                                input: input.clone(),
                             });
                         }
-                        crate::ContentPart::ToolResult(result) => {
+                        ContentBlock::ToolResult { tool_use_id, content, .. } => {
                             converted.push(AnthropicContentPart::ToolResult {
-                                tool_use_id: result.tool_use_id.clone(),
-                                content: result.content.clone(),
+                                tool_use_id: tool_use_id.clone(),
+                                content: content.clone(),
                             });
+                        }
+                        ContentBlock::Thinking { .. } => {
+                            // Thinking blocks are internal and should not be sent to the API
                         }
                     }
                 }
@@ -190,7 +224,7 @@ impl AnthropicProvider {
     }
 
     /// Convert tools to Anthropic format.
-    fn convert_tools(&self, tools: &[crate::ToolDefinition]) -> Vec<AnthropicTool> {
+    fn convert_tools(&self, tools: &[ToolDefinition]) -> Vec<AnthropicTool> {
         tools
             .iter()
             .map(|t| AnthropicTool {
@@ -203,16 +237,16 @@ impl AnthropicProvider {
 
     /// Parse Anthropic response.
     fn parse_response(&self, response: AnthropicResponse) -> ChatResponse {
-        let mut content = String::new();
+        let mut text_content = String::new();
         let mut tool_calls = Vec::new();
 
         for block in &response.content {
             match block {
                 AnthropicContentBlock::Text { text } => {
-                    content.push_str(text);
+                    text_content.push_str(text);
                 }
                 AnthropicContentBlock::ToolUse { id, name, input } => {
-                    tool_calls.push(ToolUse {
+                    tool_calls.push(ContentBlock::ToolUse {
                         id: id.clone(),
                         name: name.clone(),
                         input: input.clone(),
@@ -232,15 +266,15 @@ impl AnthropicProvider {
         ChatResponse {
             id: response.id,
             model: response.model,
-            content,
-            tool_calls,
+            content: MessageContent::Text(text_content),
             stop_reason,
-            usage: Usage {
-                input_tokens: response.usage.input_tokens,
-                output_tokens: response.usage.output_tokens,
-                cache_read_tokens: response.usage.cache_read_input_tokens.unwrap_or(0),
-                cache_creation_tokens: response.usage.cache_creation_input_tokens.unwrap_or(0),
+            usage: TokenUsage {
+                input: response.usage.input_tokens as u64,
+                output: response.usage.output_tokens as u64,
+                cache_read: response.usage.cache_read_input_tokens.unwrap_or(0) as u64,
+                cache_creation: response.usage.cache_creation_input_tokens.unwrap_or(0) as u64,
             },
+            tool_calls,
             metadata: HashMap::new(),
         }
     }
@@ -257,41 +291,63 @@ impl Provider for AnthropicProvider {
         Ok(vec![
             ModelInfo {
                 id: "claude-opus-4-20250514".to_string(),
-                name: "Claude Opus 4".to_string(),
-                description: "Most capable model for complex tasks".to_string(),
+                provider: "anthropic".to_string(),
+                display_name: "Claude Opus 4".to_string(),
                 context_window: 200_000,
-                max_output: 32_000,
-                input_price: 15.0,
-                output_price: 75.0,
-                capabilities: vec![
-                    "vision".to_string(),
-                    "tools".to_string(),
-                    "computer_use".to_string(),
-                ],
+                max_output_tokens: 32_000,
+                pricing: Some(ModelPricing {
+                    input_per_1m: 15.0,
+                    output_per_1m: 75.0,
+                    cache_creation_per_1m: Some(1.88),
+                    cache_read_per_1m: Some(0.19),
+                }),
+                capabilities: ModelCapabilities {
+                    vision: true,
+                    tool_use: true,
+                    streaming: true,
+                    extended_thinking: true,
+                    json_mode: false,
+                },
             },
             ModelInfo {
                 id: "claude-sonnet-4-20250514".to_string(),
-                name: "Claude Sonnet 4".to_string(),
-                description: "Best balance of performance and speed".to_string(),
+                provider: "anthropic".to_string(),
+                display_name: "Claude Sonnet 4".to_string(),
                 context_window: 200_000,
-                max_output: 64_000,
-                input_price: 3.0,
-                output_price: 15.0,
-                capabilities: vec![
-                    "vision".to_string(),
-                    "tools".to_string(),
-                    "computer_use".to_string(),
-                ],
+                max_output_tokens: 64_000,
+                pricing: Some(ModelPricing {
+                    input_per_1m: 3.0,
+                    output_per_1m: 15.0,
+                    cache_creation_per_1m: Some(0.38),
+                    cache_read_per_1m: Some(0.03),
+                }),
+                capabilities: ModelCapabilities {
+                    vision: true,
+                    tool_use: true,
+                    streaming: true,
+                    extended_thinking: true,
+                    json_mode: false,
+                },
             },
             ModelInfo {
                 id: "claude-3-5-haiku-20241022".to_string(),
-                name: "Claude 3.5 Haiku".to_string(),
-                description: "Fastest model for simple tasks".to_string(),
+                provider: "anthropic".to_string(),
+                display_name: "Claude 3.5 Haiku".to_string(),
                 context_window: 200_000,
-                max_output: 8192,
-                input_price: 0.80,
-                output_price: 4.0,
-                capabilities: vec!["vision".to_string(), "tools".to_string()],
+                max_output_tokens: 8192,
+                pricing: Some(ModelPricing {
+                    input_per_1m: 0.80,
+                    output_per_1m: 4.0,
+                    cache_creation_per_1m: None,
+                    cache_read_per_1m: None,
+                }),
+                capabilities: ModelCapabilities {
+                    vision: true,
+                    tool_use: true,
+                    streaming: true,
+                    extended_thinking: false,
+                    json_mode: false,
+                },
             },
         ])
     }
@@ -316,10 +372,10 @@ impl Provider for AnthropicProvider {
             stop_sequences: options.stop,
             tools: options.tools.as_ref().map(|t| self.convert_tools(t)),
             tool_choice: options.tool_choice.as_ref().map(|c| match c {
-                crate::ToolChoice::Auto => AnthropicToolChoice::Auto,
-                crate::ToolChoice::Any => AnthropicToolChoice::Any,
-                crate::ToolChoice::None => AnthropicToolChoice::None,
-                crate::ToolChoice::Tool { name } => AnthropicToolChoice::Tool {
+                ToolChoice::Auto => AnthropicToolChoice::Auto,
+                ToolChoice::Any => AnthropicToolChoice::Any,
+                ToolChoice::None => AnthropicToolChoice::None,
+                ToolChoice::Tool { name } => AnthropicToolChoice::Tool {
                     name: name.clone(),
                 },
             }),
@@ -382,10 +438,10 @@ impl Provider for AnthropicProvider {
             stop_sequences: options.stop,
             tools: options.tools.as_ref().map(|t| self.convert_tools(t)),
             tool_choice: options.tool_choice.as_ref().map(|c| match c {
-                crate::ToolChoice::Auto => AnthropicToolChoice::Auto,
-                crate::ToolChoice::Any => AnthropicToolChoice::Any,
-                crate::ToolChoice::None => AnthropicToolChoice::None,
-                crate::ToolChoice::Tool { name } => AnthropicToolChoice::Tool {
+                ToolChoice::Auto => AnthropicToolChoice::Auto,
+                ToolChoice::Any => AnthropicToolChoice::Any,
+                ToolChoice::None => AnthropicToolChoice::None,
+                ToolChoice::Tool { name } => AnthropicToolChoice::Tool {
                     name: name.clone(),
                 },
             }),
@@ -474,11 +530,11 @@ impl Provider for AnthropicProvider {
 
                                     Some(Ok(StreamEvent::End {
                                         stop_reason,
-                                        usage: Usage {
-                                            input_tokens: 0,
-                                            output_tokens: usage.output_tokens,
-                                            cache_read_tokens: 0,
-                                            cache_creation_tokens: 0,
+                                        usage: TokenUsage {
+                                            input: 0,
+                                            output: usage.output_tokens as u64,
+                                            cache_read: 0,
+                                            cache_creation: 0,
                                         },
                                     }))
                                 }
@@ -590,13 +646,13 @@ enum AnthropicContent {
 #[serde(tag = "type", rename_all = "snake_case")]
 enum AnthropicContentPart {
     Text { text: String },
-    Image { source: ImageSource },
+    Image { source: ApiImageSource },
     ToolUse { id: String, name: String, input: serde_json::Value },
     ToolResult { tool_use_id: String, content: String },
 }
 
 #[derive(Serialize)]
-struct ImageSource {
+struct ApiImageSource {
     #[serde(rename = "type")]
     source_type: String,
     media_type: String,

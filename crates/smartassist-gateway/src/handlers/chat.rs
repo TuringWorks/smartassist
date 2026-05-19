@@ -5,7 +5,8 @@ use crate::error::GatewayError;
 use crate::methods::MethodHandler;
 use crate::Result;
 use async_trait::async_trait;
-use smartassist_providers::{ChatOptions, Message as ProviderMessage};
+use smartassist_core::types::{Message, Role};
+use smartassist_providers::ChatOptions;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::{debug, warn};
@@ -39,7 +40,7 @@ pub struct ChatResponse {
     pub message: String,
 
     /// Token usage.
-    pub usage: Option<TokenUsage>,
+    pub usage: Option<TokenUsageInfo>,
 
     /// Message ID.
     pub message_id: Option<String>,
@@ -47,7 +48,7 @@ pub struct ChatResponse {
 
 /// Token usage statistics.
 #[derive(Debug, Serialize)]
-pub struct TokenUsage {
+pub struct TokenUsageInfo {
     pub input: u64,
     pub output: u64,
 }
@@ -75,8 +76,8 @@ impl MethodHandler for ChatHandler {
 
         let session_key = params.session_key.unwrap_or_else(|| "default".to_string());
 
-        // Get or create session and build message history
-        let messages = {
+        // Get or create session and add user message
+        {
             let mut sessions = self.context.sessions.write().await;
             sessions.entry(session_key.clone()).or_insert_with(|| SessionData {
                 key: session_key.clone(),
@@ -89,25 +90,16 @@ impl MethodHandler for ChatHandler {
 
             // Add user message
             if let Some(session) = sessions.get_mut(&session_key) {
-                session.messages.push(serde_json::json!({
-                    "role": "user",
-                    "content": params.message,
-                }));
+                session.messages.push(Message::user(&params.message));
                 session.last_activity = Some(chrono::Utc::now());
             }
+        }
 
-            // Build provider messages from session history
+        // Build provider messages from session history
+        let messages = {
+            let sessions = self.context.sessions.read().await;
             let session = sessions.get(&session_key).unwrap();
-            session.messages.iter().filter_map(|m| {
-                let role = m.get("role")?.as_str()?;
-                let content = m.get("content")?.as_str()?;
-                match role {
-                    "user" => Some(ProviderMessage::user(content)),
-                    "assistant" => Some(ProviderMessage::assistant(content)),
-                    "system" => Some(ProviderMessage::system(content)),
-                    _ => None,
-                }
-            }).collect::<Vec<_>>()
+            session.messages.clone()
         };
 
         // Try to use the provider if available
@@ -117,22 +109,27 @@ impl MethodHandler for ChatHandler {
 
             match provider.chat(model, &messages, Some(options)).await {
                 Ok(response) => {
+                    let text = response.to_text();
+
                     // Store assistant message in session
                     {
                         let mut sessions = self.context.sessions.write().await;
                         if let Some(session) = sessions.get_mut(&session_key) {
-                            session.messages.push(serde_json::json!({
-                                "role": "assistant",
-                                "content": response.content,
-                            }));
+                            session.messages.push(Message {
+                                role: Role::Assistant,
+                                content: response.content,
+                                name: None,
+                                tool_use_id: None,
+                                timestamp: chrono::Utc::now(),
+                            });
                         }
                     }
 
                     (
-                        response.content,
-                        Some(TokenUsage {
-                            input: response.usage.input_tokens as u64,
-                            output: response.usage.output_tokens as u64,
+                        text,
+                        Some(TokenUsageInfo {
+                            input: response.usage.input,
+                            output: response.usage.output,
                         }),
                     )
                 }

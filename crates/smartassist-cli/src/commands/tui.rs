@@ -2,7 +2,7 @@
 
 use crate::tui::run_tui;
 use clap::Args;
-use smartassist_agent::providers::anthropic::AnthropicProvider;
+use smartassist_agent::providers::Provider;
 use smartassist_agent::runtime::AgentRuntime;
 use smartassist_agent::session::SessionManager;
 use smartassist_agent::tools::ToolRegistry;
@@ -44,8 +44,8 @@ pub async fn run(args: TuiArgs) -> anyhow::Result<()> {
             "No API key found. Set ANTHROPIC_API_KEY or run `smartassist init`."
         ))?;
 
-    let provider: Arc<dyn smartassist_agent::providers::ModelProvider> =
-        Arc::new(AnthropicProvider::new(api_key));
+    let provider: Arc<dyn Provider> =
+        Arc::new(smartassist_providers::anthropic::AnthropicProvider::new(api_key)?);
 
     let agent_config = AgentConfig {
         id: agent_id.clone(),

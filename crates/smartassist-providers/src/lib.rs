@@ -1,14 +1,14 @@
 //! Model provider implementations for SmartAssist.
 //!
-//! This crate provides implementations for various AI model providers:
-//! - Anthropic (Claude models)
-//! - OpenAI (GPT models)
-//! - Google (Gemini models)
+//! This crate provides implementations for various AI model providers,
+//! using canonical types from `smartassist_core::types` for the
+//! provider trait interface.
 //!
 //! # Example
 //!
 //! ```rust,ignore
-//! use smartassist_providers::{Provider, AnthropicProvider, Message, MessageRole};
+//! use smartassist_providers::{Provider, AnthropicProvider};
+//! use smartassist_core::types::{Message, ChatOptions, ToolChoice};
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -19,7 +19,7 @@
 //!     ];
 //!
 //!     let response = provider.chat("claude-sonnet-4-20250514", &messages, None).await?;
-//!     println!("Response: {}", response.content);
+//!     println!("Response: {}", response.to_text());
 //!
 //!     Ok(())
 //! }
@@ -70,17 +70,40 @@ pub mod tts_local;
 #[cfg(feature = "ollama")]
 pub mod ollama;
 
+#[cfg(feature = "deepseek")]
+pub mod deepseek;
+
+#[cfg(feature = "moonshot")]
+pub mod moonshot;
+
+#[cfg(feature = "openrouter")]
+pub mod openrouter;
+
+#[cfg(feature = "qwen")]
+pub mod qwen;
+
+#[cfg(feature = "zhipu")]
+pub mod zhipu;
+
 pub mod media;
 
 pub use error::{ProviderError, Result};
-pub use types::*;
+
+// Re-export canonical types from smartassist_core for convenience.
+// These are THE canonical types — the providers crate does not define its own.
+pub use smartassist_core::types::{
+    ChatOptions, ChatResponse, ContentBlock, ImageSource, ImageSourceType, Message, MessageContent,
+    ModelCapabilities, ModelInfo, ModelPricing, ProviderCapabilities, Role, StopReason,
+    StreamEvent, TokenCount, TokenUsage, ToolChoice, ToolDefinition,
+};
+
+// Re-export provider-specific types that have no core equivalent.
+pub use types::{CompletionStream};
 
 use async_trait::async_trait;
-use futures::Stream;
-use std::pin::Pin;
 
 /// Stream of completion events for streaming responses.
-pub type CompletionStream = Pin<Box<dyn Stream<Item = Result<StreamEvent>> + Send>>;
+// Note: CompletionStream is defined in types.rs as a type alias.
 
 /// A model provider that can generate completions.
 #[async_trait]
@@ -120,45 +143,15 @@ pub trait Provider: Send + Sync {
     fn capabilities(&self) -> ProviderCapabilities;
 }
 
-/// Provider capabilities.
-#[derive(Debug, Clone, Default)]
-pub struct ProviderCapabilities {
-    /// Supports streaming responses.
-    pub streaming: bool,
-
-    /// Supports function/tool calling.
-    pub tools: bool,
-
-    /// Supports vision/image input.
-    pub vision: bool,
-
-    /// Supports system messages.
-    pub system_messages: bool,
-
-    /// Maximum context window (tokens).
-    pub max_context: Option<usize>,
-
-    /// Maximum output tokens.
-    pub max_output: Option<usize>,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_provider_capabilities() {
-        let caps = ProviderCapabilities {
-            streaming: true,
-            tools: true,
-            vision: true,
-            system_messages: true,
-            max_context: Some(200_000),
-            max_output: Some(8192),
-        };
-
-        assert!(caps.streaming);
-        assert!(caps.tools);
-        assert_eq!(caps.max_context, Some(200_000));
+    fn test_provider_capabilities_default() {
+        let caps = ProviderCapabilities::default();
+        assert!(!caps.streaming);
+        assert!(!caps.tools);
+        assert!(caps.max_context.is_none());
     }
 }

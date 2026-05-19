@@ -28,9 +28,28 @@ export default function Settings() {
   
   const [editingSecret, setEditingSecret] = createSignal<string | null>(null);
   
-  // Custom API Key State
+  // Add API Key State
+  const [selectedProvider, setSelectedProvider] = createSignal("openai");
+  const [keySuffix, setKeySuffix] = createSignal("");
   const [customKeyName, setCustomKeyName] = createSignal("");
-  const [customKeyValue, setCustomKeyValue] = createSignal("");
+  const [keyValue, setKeyValue] = createSignal("");
+  
+  const PREDEFINED_PROVIDERS = [
+    { value: "openai", label: "OpenAI" },
+    { value: "anthropic", label: "Anthropic" },
+    { value: "google", label: "Google Gemini" },
+    { value: "groq", label: "Groq" },
+    { value: "together", label: "Together AI" },
+    { value: "openrouter", label: "OpenRouter" },
+    { value: "qwen", label: "Alibaba Qwen" },
+    { value: "custom", label: "Custom Provider" },
+  ];
+
+  const generatedKeyName = () => {
+    if (selectedProvider() === "custom") return customKeyName().trim();
+    const suffix = keySuffix().trim();
+    return suffix ? `${selectedProvider()}_api_key_${suffix}` : `${selectedProvider()}_api_key`;
+  };
 
   const showToast = (message: string, type: "success" | "error" = "success") => {
     setToast({ message, type });
@@ -48,7 +67,8 @@ export default function Settings() {
       showToast(`Secret '${name}' saved successfully`);
       setEditingSecret(null);
       setCustomKeyName("");
-      setCustomKeyValue("");
+      setKeySuffix("");
+      setKeyValue("");
       refetch();
     } catch (e: any) {
       showToast(`Failed to save secret: ${e.toString()}`, "error");
@@ -99,31 +119,20 @@ export default function Settings() {
         
         <Show when={secrets()}>
           <div class={styles.providerList}>
-            <For each={(() => {
-              const base = [
-                { id: "openai_api_key", label: "OpenAI API Key", prefix: "sk-" },
-                { id: "anthropic_api_key", label: "Anthropic API Key", prefix: "sk-ant-" },
-                { id: "google_api_key", label: "Google Gemini API Key", prefix: "AIza" },
-                { id: "groq_api_key", label: "Groq API Key", prefix: "gsk_" },
-                { id: "together_api_key", label: "Together AI API Key", prefix: "" },
-              ];
-              const existingIds = new Set(base.map(p => p.id));
-              const custom = (secrets() || [])
-                .filter(s => !existingIds.has(s))
-                .map(s => ({ id: s, label: s, prefix: "" }));
-              return [...base, ...custom];
-            })()}>
-              {(provider) => {
-                const isSet = () => secrets()?.includes(provider.id) ?? false;
-                const isEditing = () => editingSecret() === provider.id;
+            <Show when={secrets()?.length === 0}>
+              <p class={styles.description}>No API keys configured yet.</p>
+            </Show>
+            <For each={secrets()}>
+              {(secretName) => {
+                const isEditing = () => editingSecret() === secretName;
 
                 return (
                   <div class={styles.providerCard}>
                     <div class={isEditing() ? styles.providerHeaderEditing : styles.providerHeader}>
                       <div>
-                        <strong class={styles.providerLabel}>{provider.label}</strong>
-                        <span class={isSet() ? styles.statusConfigured : styles.statusUnconfigured}>
-                          {isSet() ? "[ENCRYPTED & SAVED]" : "Not Configured"}
+                        <strong class={styles.providerLabel}>{secretName}</strong>
+                        <span class={styles.statusConfigured}>
+                          [ENCRYPTED & SAVED]
                         </span>
                       </div>
                       <div class={styles.actionButtons}>
@@ -133,46 +142,44 @@ export default function Settings() {
                             if (isEditing()) {
                               setEditingSecret(null);
                             } else {
-                              setEditingSecret(provider.id);
+                              setEditingSecret(secretName);
                               // Reset hidden input just in case
-                              const input = document.getElementById(`overwrite-${provider.id}`) as HTMLInputElement;
+                              const input = document.getElementById(`overwrite-${secretName}`) as HTMLInputElement;
                               if (input) input.value = "";
                             }
                           }}
                         >
-                          {isEditing() ? "Cancel" : (isSet() ? "Overwrite" : "Configure")}
+                          {isEditing() ? "Cancel" : "Overwrite"}
                         </button>
-                        <Show when={isSet()}>
-                          <button
-                            class={formStyles.btnDanger}
-                            onClick={() => handleDeleteSecret(provider.id)}
-                          >
-                            Delete
-                          </button>
-                        </Show>
+                        <button
+                          class={formStyles.btnDanger}
+                          onClick={() => handleDeleteSecret(secretName)}
+                        >
+                          Delete
+                        </button>
                       </div>
                     </div>
 
                     {/* Configure / Overwrite inline form */}
                     <Show when={isEditing()}>
                       <SecretInput
-                        label="API Key Value"
+                        label="New API Key Value"
                         value=""
-                        placeholder={provider.prefix ? `e.g. ${provider.prefix}...` : "Enter API Key"}
+                        placeholder="Enter new API Key"
                         onChange={(v) => {
-                           const input = document.getElementById(`overwrite-${provider.id}`) as HTMLInputElement;
+                           const input = document.getElementById(`overwrite-${secretName}`) as HTMLInputElement;
                            if (input) input.value = v;
                         }}
                       />
-                      <input type="hidden" id={`overwrite-${provider.id}`} />
+                      <input type="hidden" id={`overwrite-${secretName}`} />
                       <button
                         class={`${formStyles.btnPrimary} ${styles.saveButton}`}
                         onClick={() => {
-                          const val = (document.getElementById(`overwrite-${provider.id}`) as HTMLInputElement)?.value;
-                          if (val) handleSaveSecret(provider.id, val);
+                          const val = (document.getElementById(`overwrite-${secretName}`) as HTMLInputElement)?.value;
+                          if (val) handleSaveSecret(secretName, val);
                         }}
                       >
-                        {isSet() ? "Save New Value" : "Save API Key"}
+                        Save New Value
                       </button>
                     </Show>
                   </div>
@@ -183,26 +190,47 @@ export default function Settings() {
         </Show>
 
         <div class={styles.customKeySection}>
-          <h3 class={styles.customKeyHeader}>Add Custom API Key</h3>
-          <p class={styles.description}>Add credentials for other providers (e.g. `deepseek_api_key`).</p>
-          <TextInput
-            label="Provider Secret Name"
-            value={customKeyName()}
-            onChange={setCustomKeyName}
-            placeholder="e.g. xai_api_key"
+          <h3 class={styles.customKeyHeader}>Add API Key</h3>
+          <p class={styles.description}>Add a new API key for a provider. You can optionally add a suffix to identify multiple keys for the same provider.</p>
+          
+          <EnumSelect
+            label="Provider"
+            value={selectedProvider()}
+            options={PREDEFINED_PROVIDERS}
+            onChange={setSelectedProvider}
           />
+
+          <Show when={selectedProvider() === "custom"}>
+            <TextInput
+              label="Custom Secret Name"
+              value={customKeyName()}
+              onChange={setCustomKeyName}
+              placeholder="e.g. xai_api_key"
+            />
+          </Show>
+          
+          <Show when={selectedProvider() !== "custom"}>
+            <TextInput
+              label="Key Label/Suffix (Optional)"
+              value={keySuffix()}
+              onChange={setKeySuffix}
+              placeholder="e.g. work, personal"
+              help={`Generated Secret Name: ${generatedKeyName()}`}
+            />
+          </Show>
+
           <SecretInput
             label="API Key"
-            value={customKeyValue()}
-            onChange={setCustomKeyValue}
+            value={keyValue()}
+            onChange={setKeyValue}
             placeholder="Enter API Key"
           />
           <button
             class={`${formStyles.btnPrimary} ${styles.saveButton}`}
-            disabled={!customKeyName() || !customKeyValue()}
-            onClick={() => handleSaveSecret(customKeyName(), customKeyValue())}
+            disabled={!generatedKeyName() || !keyValue()}
+            onClick={() => handleSaveSecret(generatedKeyName(), keyValue())}
           >
-            Save Custom API Key
+            Save API Key
           </button>
         </div>
       </Section>

@@ -1,14 +1,14 @@
 //! Agent runtime for executing conversations.
 
 use crate::approval::ApprovalManager;
-use crate::providers::{ModelProvider, StreamEvent};
+use crate::providers::{ChatResponse, Provider, StreamEvent};
 use crate::session::{Session, SessionManager};
 use crate::tools::{ToolContext, ToolExecutor, ToolRegistry};
 use crate::Result;
 use async_stream::stream;
 use futures::Stream;
 use smartassist_core::types::{
-    AgentConfig, AgentId, Message, SessionKey, ThinkingLevel, TokenUsage,
+    AgentConfig, AgentId, ChatOptions, Message, SessionKey, ThinkingLevel, TokenUsage,
 };
 use std::pin::Pin;
 use std::sync::Arc;
@@ -62,7 +62,7 @@ pub struct AgentRuntime {
     runtime_config: RuntimeConfig,
 
     /// Model provider.
-    provider: Arc<dyn ModelProvider>,
+    provider: Arc<dyn Provider>,
 
     /// Tool registry.
     tool_registry: Arc<ToolRegistry>,
@@ -81,7 +81,7 @@ impl AgentRuntime {
     /// Create a new agent runtime.
     pub fn new(
         config: AgentConfig,
-        provider: Arc<dyn ModelProvider>,
+        provider: Arc<dyn Provider>,
         tool_registry: Arc<ToolRegistry>,
         session_manager: Arc<SessionManager>,
     ) -> Self {
@@ -154,13 +154,16 @@ impl AgentRuntime {
     ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent>> + Send + '_>> {
         Box::pin(stream! {
             // Signal start
-            yield Ok(StreamEvent::Start);
+            yield Ok(StreamEvent::Start {
+                id: uuid::Uuid::new_v4().to_string(),
+                model: self.config.model.clone().unwrap_or_else(|| "claude-sonnet-4-20250514".to_string()),
+            });
 
             // Get or create session
             let mut session = match self.session_manager.get_or_create(&session_key, &self.config.id).await {
                 Ok(s) => s,
                 Err(e) => {
-                    yield Err(e);
+                    yield Ok(StreamEvent::Error { message: e.to_string() });
                     return;
                 }
             };
@@ -171,25 +174,27 @@ impl AgentRuntime {
             match self.get_model_response(&session).await {
                 Ok(response) => {
                     // Stream the response as text deltas
-                    yield Ok(StreamEvent::Text(response.clone()));
+                    yield Ok(StreamEvent::ContentDelta { delta: response.clone() });
 
                     // Add to session
                     session.add_assistant_message(&response);
 
                     // Save session
                     if let Err(e) = self.session_manager.save(&session).await {
-                        yield Err(e);
+                        yield Ok(StreamEvent::Error { message: e.to_string() });
                         return;
                     }
+
+                    // Signal completion
+                    yield Ok(StreamEvent::End {
+                        stop_reason: smartassist_core::types::StopReason::EndTurn,
+                        usage: smartassist_core::types::TokenUsage::default(),
+                    });
                 }
                 Err(e) => {
-                    yield Err(e);
-                    return;
+                    yield Ok(StreamEvent::Error { message: e.to_string() });
                 }
             }
-
-            // Signal completion
-            yield Ok(StreamEvent::Done);
         })
     }
 
@@ -202,9 +207,15 @@ impl AgentRuntime {
             Vec::new()
         };
 
-        let response = self.provider.complete(&messages, &tools).await?;
+        let options = ChatOptions::with_max_tokens(self.runtime_config.max_output_tokens)
+            .tools(tools);
 
-        // Extract text from response
+        let response: ChatResponse = self
+            .provider
+            .chat(self.config.model.as_deref().unwrap_or("claude-sonnet-4-20250514"), &messages, Some(options))
+            .await
+            .map_err(|e| crate::error::AgentError::ModelApi(e.to_string()))?;
+
         Ok(response.content.to_text())
     }
 

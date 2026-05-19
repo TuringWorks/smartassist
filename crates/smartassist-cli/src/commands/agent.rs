@@ -2,12 +2,14 @@
 
 use crate::repl::{Repl, ReplConfig};
 use clap::Args;
-use smartassist_agent::providers::anthropic::AnthropicProvider;
+use smartassist_agent::providers::Provider;
+use smartassist_secrets::SecretStore;
 use smartassist_agent::runtime::AgentRuntime;
 use smartassist_agent::session::SessionManager;
 use smartassist_agent::tools::ToolRegistry;
 use smartassist_core::config::Config;
 use smartassist_core::types::{AgentConfig, AgentId, SessionKey};
+use smartassist_secrets::FileSecretStore;
 use std::sync::Arc;
 
 /// Agent command arguments.
@@ -213,16 +215,49 @@ pub async fn run(args: AgentArgs) -> anyhow::Result<()> {
                 ..AgentConfig::default()
             };
 
-            // Resolve API key from env
-            let api_key = std::env::var("ANTHROPIC_API_KEY")
-                .or_else(|_| std::env::var("OPENAI_API_KEY"))
-                .map_err(|_| anyhow::anyhow!(
-                    "No API key found. Set ANTHROPIC_API_KEY or run `smartassist init`."
-                ))?;
+            // Resolve provider type from model string
+            let model_str = config.model.as_deref().unwrap_or("anthropic/claude-3-7-sonnet-latest");
+            let provider_prefix = model_str.split('/').next().unwrap_or("anthropic");
+
+            // Attempt to get API key from environment or secret store
+            let api_key = {
+                let default_key_name = match provider_prefix {
+                    "openai" => "openai_api_key",
+                    "google" => "google_api_key",
+                    "openrouter" => "openrouter_api_key",
+                    "qwen" => "qwen_api_key",
+                    _ => "anthropic_api_key",
+                };
+
+                let env_var_name = match provider_prefix {
+                    "openai" => "OPENAI_API_KEY",
+                    "google" => "GOOGLE_API_KEY",
+                    "openrouter" => "OPENROUTER_API_KEY",
+                    "qwen" => "DASHSCOPE_API_KEY",
+                    _ => "ANTHROPIC_API_KEY",
+                };
+
+                std::env::var(env_var_name).or_else(|_| {
+                    // Try secret store as fallback
+                    if let Ok(store) = FileSecretStore::from_default_dir() {
+                        if let Ok(key) = futures::executor::block_on(store.get(default_key_name)) {
+                            return Ok(key.expose().to_string());
+                        }
+                    }
+                    Err(anyhow::anyhow!(
+                        "No API key found for provider '{}'. Set {} or use the dashboard to add a key.",
+                        provider_prefix, env_var_name
+                    ))
+                })?
+            };
 
             // Create provider
-            let provider: Arc<dyn smartassist_agent::providers::ModelProvider> =
-                Arc::new(AnthropicProvider::new(api_key));
+            let provider: Arc<dyn Provider> = match provider_prefix {
+                "openai" => Arc::new(smartassist_providers::openai::OpenAIProvider::new(api_key)?.with_default_model(model_str)),
+                "qwen" => Arc::new(smartassist_providers::qwen::QwenProvider::new(api_key)?.with_default_model(model_str)),
+                "openrouter" => Arc::new(smartassist_providers::openrouter::OpenRouterProvider::new(api_key)?.with_default_model(model_str)),
+                _ => Arc::new(smartassist_providers::anthropic::AnthropicProvider::new(api_key)?.with_default_model(model_str)),
+            };
 
             // Create tool registry and session manager
             let tool_registry = Arc::new(ToolRegistry::new());

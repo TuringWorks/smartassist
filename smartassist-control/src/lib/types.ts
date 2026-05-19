@@ -35,6 +35,7 @@ export interface AgentConfig {
   id: string;
   name?: string;
   workspace_dir?: string;
+  api_key_name?: string;
   model?: string;
   fallback_models: string[];
   system_prompt?: string;

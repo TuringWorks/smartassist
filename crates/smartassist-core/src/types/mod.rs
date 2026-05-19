@@ -9,6 +9,7 @@ mod channel;
 mod tool;
 mod auth;
 mod audit;
+mod provider;
 
 pub use identifiers::*;
 pub use message::*;
@@ -19,3 +20,4 @@ pub use channel::*;
 pub use tool::*;
 pub use auth::*;
 pub use audit::*;
+pub use provider::*;

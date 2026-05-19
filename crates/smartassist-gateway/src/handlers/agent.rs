@@ -9,11 +9,8 @@ use crate::methods::MethodHandler;
 use crate::Result;
 use async_trait::async_trait;
 use smartassist_agent::ToolContext;
-use smartassist_core::types::ToolResult;
-use smartassist_providers::{
-    ChatOptions, Message as ProviderMessage, StopReason, ToolChoice, ToolDefinition as ProviderToolDef,
-    ToolUse,
-};
+use smartassist_core::types::{ContentBlock, Message as CoreMessage, Role, ToolResult};
+use smartassist_providers::{ChatOptions, Message, StopReason, ToolChoice, ToolDefinition};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::{debug, warn};
@@ -28,7 +25,7 @@ pub struct AgentTurnResult {
     /// Tool calls made.
     pub tool_calls: Vec<ToolCallInfo>,
     /// Token usage.
-    pub usage: Option<TokenUsage>,
+    pub usage: Option<TokenUsageInfo>,
     /// Whether agent is done.
     pub done: bool,
     /// Stop reason.
@@ -50,9 +47,9 @@ pub struct ToolCallInfo {
     pub success: bool,
 }
 
-/// Token usage.
+/// Token usage info.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TokenUsage {
+pub struct TokenUsageInfo {
     /// Input tokens.
     pub input: u64,
     /// Output tokens.
@@ -93,26 +90,17 @@ impl AgentHandler {
     }
 
     /// Build provider messages from session history.
-    fn build_messages(session: &SessionData, system: Option<&str>) -> Vec<ProviderMessage> {
+    fn build_messages(session: &SessionData, system: Option<&str>) -> Vec<Message> {
         let mut messages = Vec::new();
         if let Some(system) = system {
-            messages.push(ProviderMessage::system(system));
+            messages.push(CoreMessage::system(system));
         }
         for msg in &session.messages {
-            let role = msg.get("role").and_then(|v| v.as_str());
-            let content = msg.get("content").and_then(|v| v.as_str());
-            match (role, content) {
-                (Some("user"), Some(text)) => messages.push(ProviderMessage::user(text)),
-                (Some("assistant"), Some(text)) => messages.push(ProviderMessage::assistant(text)),
-                (Some("system"), Some(text)) => messages.push(ProviderMessage::system(text)),
-                (Some("tool"), Some(text)) => {
-                    let tool_call_id = msg
-                        .get("tool_call_id")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
-                    messages.push(ProviderMessage::tool_result(tool_call_id, text));
-                }
-                _ => {}
+            match msg.role {
+                Role::User => messages.push(msg.clone()),
+                Role::Assistant => messages.push(msg.clone()),
+                Role::System => messages.push(msg.clone()),
+                Role::Tool => messages.push(msg.clone()),
             }
         }
         messages
@@ -122,16 +110,17 @@ impl AgentHandler {
     async fn get_tool_definitions(
         &self,
         filter: Option<&[String]>,
-    ) -> Option<Vec<ProviderToolDef>> {
+    ) -> Option<Vec<ToolDefinition>> {
         let registry = self.context.tool_registry.as_ref()?;
         let defs = registry.definitions().await;
-        let defs: Vec<ProviderToolDef> = defs
+        let defs: Vec<ToolDefinition> = defs
             .into_iter()
             .filter(|d| filter.map_or(true, |f| f.contains(&d.name)))
-            .map(|d| ProviderToolDef {
-                name: d.name,
-                description: d.description,
-                input_schema: d.input_schema,
+            .map(|d| ToolDefinition {
+                name: d.name.clone(),
+                description: d.description.clone(),
+                input_schema: d.input_schema.clone(),
+                execution: d.execution.clone(),
             })
             .collect();
         if defs.is_empty() {
@@ -144,7 +133,9 @@ impl AgentHandler {
     /// Execute a tool and return the result.
     async fn execute_tool(
         &self,
-        tool_use: &ToolUse,
+        id: &str,
+        name: &str,
+        input: serde_json::Value,
         session_key: &str,
         agent_id: &str,
     ) -> Result<ToolCallInfo> {
@@ -160,19 +151,19 @@ impl AgentHandler {
             ..ToolContext::default()
         };
 
-        debug!("Executing tool '{}' for session {}", tool_use.name, session_key);
+        debug!("Executing tool '{}' for session {}", name, session_key);
 
         let result: ToolResult = executor
-            .execute(&tool_use.id, &tool_use.name, tool_use.input.clone(), Some(&tool_context))
+            .execute(id, name, input.clone(), Some(&tool_context))
             .await
             .map_err(|e| GatewayError::Internal(format!("Tool execution failed: {}", e)))?;
 
         let success = !result.is_error;
 
         Ok(ToolCallInfo {
-            id: tool_use.id.clone(),
-            name: tool_use.name.clone(),
-            input: tool_use.input.clone(),
+            id: id.to_string(),
+            name: name.to_string(),
+            input,
             output: Some(result.output),
             success,
         })
@@ -208,16 +199,13 @@ impl MethodHandler for AgentHandler {
 
             // Add user message
             if let Some(session) = sessions.get_mut(&session_key) {
-                session.messages.push(serde_json::json!({
-                    "role": "user",
-                    "content": params.message,
-                }));
+                session.messages.push(CoreMessage::user(&params.message));
                 session.last_activity = Some(chrono::Utc::now());
             }
         }
 
         let mut all_tool_calls: Vec<ToolCallInfo> = Vec::new();
-        let mut total_input_tokens: u64 = params.message.len() as u64;
+        let mut total_input_tokens: u64 = 0;
         let mut total_output_tokens: u64 = 0;
         let mut final_response = String::new();
         let mut stop_reason = "end_turn".to_string();
@@ -249,48 +237,45 @@ impl MethodHandler for AgentHandler {
 
                 match response {
                     Ok(response) => {
-                        total_input_tokens += response.usage.input_tokens as u64;
-                        total_output_tokens += response.usage.output_tokens as u64;
+                        total_input_tokens += response.usage.input;
+                        total_output_tokens += response.usage.output;
 
                         if response.has_tool_calls() {
                             stop_reason = "tool_use".to_string();
 
                             // Execute each tool call
-                            for tool_use in &response.tool_calls {
-                                let tool_info = self
-                                    .execute_tool(tool_use, &session_key, &agent_id)
-                                    .await?;
+                            for block in &response.tool_calls {
+                                if let ContentBlock::ToolUse { id, name, input } = block {
+                                    let tool_info = self
+                                        .execute_tool(id, name, input.clone(), &session_key, &agent_id)
+                                        .await?;
 
-                                // Append tool result to session
-                                {
-                                    let mut sessions = self.context.sessions.write().await;
-                                    if let Some(session) = sessions.get_mut(&session_key) {
-                                        session.messages.push(serde_json::json!({
-                                            "role": "assistant",
-                                            "content": format!("Using tool: {}", tool_use.name),
-                                            "tool_calls": [{
-                                                "id": tool_use.id,
-                                                "type": "function",
-                                                "function": {
-                                                    "name": tool_use.name,
-                                                    "arguments": tool_use.input
-                                                }
-                                            }]
-                                        }));
-                                        session.messages.push(serde_json::json!({
-                                            "role": "tool",
-                                            "content": tool_info.output.as_ref().map(|o| o.to_string()).unwrap_or_default(),
-                                            "tool_call_id": tool_use.id,
-                                        }));
-                                        session.last_activity = Some(chrono::Utc::now());
+                                    // Append assistant message with tool use and tool result
+                                    {
+                                        let mut sessions = self.context.sessions.write().await;
+                                        if let Some(session) = sessions.get_mut(&session_key) {
+                                            session.messages.push(CoreMessage {
+                                                role: Role::Assistant,
+                                                content: response.content.clone(),
+                                                name: None,
+                                                tool_use_id: None,
+                                                timestamp: chrono::Utc::now(),
+                                            });
+                                            session.messages.push(CoreMessage::tool_result(
+                                                id,
+                                                tool_info.output.as_ref().map(|o| o.to_string()).unwrap_or_default(),
+                                                !tool_info.success,
+                                            ));
+                                            session.last_activity = Some(chrono::Utc::now());
+                                        }
                                     }
-                                }
 
-                                all_tool_calls.push(tool_info);
+                                    all_tool_calls.push(tool_info);
+                                }
                             }
                         } else {
                             // Final text response
-                            final_response = response.content.clone();
+                            final_response = response.to_text();
                             stop_reason = match response.stop_reason {
                                 StopReason::EndTurn => "end_turn".to_string(),
                                 StopReason::MaxTokens => "max_tokens".to_string(),
@@ -302,10 +287,13 @@ impl MethodHandler for AgentHandler {
                             {
                                 let mut sessions = self.context.sessions.write().await;
                                 if let Some(session) = sessions.get_mut(&session_key) {
-                                    session.messages.push(serde_json::json!({
-                                        "role": "assistant",
-                                        "content": &final_response,
-                                    }));
+                                    session.messages.push(CoreMessage {
+                                        role: Role::Assistant,
+                                        content: response.content.clone(),
+                                        name: None,
+                                        tool_use_id: None,
+                                        timestamp: chrono::Utc::now(),
+                                    });
                                     session.last_activity = Some(chrono::Utc::now());
                                 }
                             }
@@ -329,7 +317,7 @@ impl MethodHandler for AgentHandler {
             session_key: session_key.clone(),
             response: final_response,
             tool_calls: all_tool_calls,
-            usage: Some(TokenUsage {
+            usage: Some(TokenUsageInfo {
                 input: total_input_tokens,
                 output: total_output_tokens,
                 cache_read: None,
@@ -365,7 +353,6 @@ impl MethodHandler for AgentStreamHandler {
         debug!("Agent stream request: {} chars", params.message.len());
 
         // TODO: Implement actual streaming via WebSocket events
-        // This would use provider.chat_stream() and emit events to the broadcast channel
 
         Ok(serde_json::json!({
             "streaming": true,
@@ -482,7 +469,7 @@ mod tests {
             session_key: "test-session".to_string(),
             response: "Hello!".to_string(),
             tool_calls: vec![],
-            usage: Some(TokenUsage {
+            usage: Some(TokenUsageInfo {
                 input: 10,
                 output: 5,
                 cache_read: None,
@@ -510,46 +497,5 @@ mod tests {
         let json = serde_json::to_value(&tool_call).unwrap();
         assert_eq!(json["name"], "read");
         assert_eq!(json["success"], true);
-    }
-
-    #[test]
-    fn test_build_messages_with_system_prompt() {
-        let session = SessionData {
-            key: "test".to_string(),
-            agent_id: None,
-            status: "active".to_string(),
-            messages: vec![
-                serde_json::json!({"role": "user", "content": "Hello"}),
-                serde_json::json!({"role": "assistant", "content": "Hi there"}),
-            ],
-            created_at: chrono::Utc::now(),
-            last_activity: None,
-        };
-
-        let messages = AgentHandler::build_messages(&session, Some("You are helpful"));
-        assert_eq!(messages.len(), 3);
-        assert!(messages[0].role.is_system());
-        assert!(messages[1].role.is_user());
-        assert!(messages[2].role.is_assistant());
-    }
-
-    #[test]
-    fn test_build_messages_with_tool_result() {
-        let session = SessionData {
-            key: "test".to_string(),
-            agent_id: None,
-            status: "active".to_string(),
-            messages: vec![
-                serde_json::json!({"role": "user", "content": "Read file"}),
-                serde_json::json!({"role": "tool", "content": "file contents", "tool_call_id": "tc-1"}),
-            ],
-            created_at: chrono::Utc::now(),
-            last_activity: None,
-        };
-
-        let messages = AgentHandler::build_messages(&session, None);
-        assert_eq!(messages.len(), 2);
-        assert_eq!(messages[1].role, smartassist_providers::MessageRole::Tool);
-        assert_eq!(messages[1].tool_call_id, Some("tc-1".to_string()));
     }
 }

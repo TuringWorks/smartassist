@@ -1,108 +1,41 @@
 //! Model provider integrations.
 //!
-//! This module provides integrations with various AI model providers:
-//!
-//! - [`AnthropicProvider`] - Claude models (Opus, Sonnet, Haiku)
-//! - [`OpenAIProvider`] - GPT-4o, GPT-4, GPT-3.5
-//! - [`OllamaProvider`] - Local models (Llama, Mistral, Qwen, etc.)
-//! - [`OpenRouterProvider`] - Unified access to 100+ models
-//! - [`DeepSeekProvider`] - DeepSeek-V3, DeepSeek Coder, DeepSeek Reasoner
-//! - [`MoonshotProvider`] - Moonshot/Kimi models (8k, 32k, 128k context)
-//! - [`QwenProvider`] - Alibaba Qwen models via DashScope
-//! - [`ZhipuProvider`] - Zhipu AI GLM-4 models
+//! This module re-exports provider types and implementations from
+//! `smartassist_providers`, which is the canonical home for all provider
+//! logic. The agent runtime uses the `Provider` trait from that crate.
 
-pub mod anthropic;
-pub mod deepseek;
-pub mod moonshot;
-pub mod ollama;
-pub mod openai;
-pub mod openrouter;
-pub mod qwen;
-pub mod zhipu;
+// Re-export the Provider trait and all core types.
+pub use smartassist_providers::{
+    ChatOptions, ChatResponse, CompletionStream, ContentBlock, ImageSource, ImageSourceType,
+    Message, MessageContent, ModelCapabilities, ModelInfo, ModelPricing, Provider,
+    ProviderCapabilities, ProviderError, Result, Role, StopReason, StreamEvent,
+    TokenCount, TokenUsage, ToolChoice, ToolDefinition,
+};
 
-use crate::Result;
-use async_trait::async_trait;
-use futures::Stream;
-use smartassist_core::types::{Message, MessageContent, TokenUsage, ToolDefinition};
-use serde::{Deserialize, Serialize};
-use std::pin::Pin;
+// Re-export concrete provider types when their features are enabled.
+#[cfg(feature = "anthropic")]
+pub use smartassist_providers::anthropic::AnthropicProvider;
 
-/// Response from a model.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ModelResponse {
-    /// Generated content.
-    pub content: MessageContent,
+#[cfg(feature = "openai")]
+pub use smartassist_providers::openai::OpenAIProvider;
 
-    /// Stop reason.
-    pub stop_reason: Option<String>,
+#[cfg(feature = "google")]
+pub use smartassist_providers::google::GoogleProvider;
 
-    /// Token usage.
-    pub token_usage: TokenUsage,
-}
+#[cfg(feature = "ollama")]
+pub use smartassist_providers::ollama::OllamaProvider;
 
-/// Streaming event from model generation.
-#[derive(Debug, Clone)]
-pub enum StreamEvent {
-    /// Stream started.
-    Start,
+#[cfg(feature = "deepseek")]
+pub use smartassist_providers::deepseek::DeepSeekProvider;
 
-    /// Text content.
-    Text(String),
+#[cfg(feature = "moonshot")]
+pub use smartassist_providers::moonshot::MoonshotProvider;
 
-    /// Thinking text (for extended thinking).
-    Thinking(String),
+#[cfg(feature = "openrouter")]
+pub use smartassist_providers::openrouter::OpenRouterProvider;
 
-    /// Tool use.
-    ToolUse {
-        id: String,
-        name: String,
-        input: serde_json::Value,
-    },
+#[cfg(feature = "qwen")]
+pub use smartassist_providers::qwen::QwenProvider;
 
-    /// Token usage update.
-    Usage(TokenUsage),
-
-    /// Stream completed.
-    Done,
-
-    /// Error occurred.
-    Error(String),
-}
-
-/// Trait for model providers.
-#[async_trait]
-pub trait ModelProvider: Send + Sync {
-    /// Get the provider name.
-    fn name(&self) -> &str;
-
-    /// Get the current model.
-    fn model(&self) -> &str;
-
-    /// Generate a response (non-streaming).
-    async fn complete(
-        &self,
-        messages: &[Message],
-        tools: &[ToolDefinition],
-    ) -> Result<ModelResponse>;
-
-    /// Generate a response (streaming).
-    fn complete_stream(
-        &self,
-        messages: &[Message],
-        tools: &[ToolDefinition],
-    ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent>> + Send + '_>>;
-
-    /// Get the context window size for this model (in tokens).
-    fn context_limit(&self) -> usize {
-        100_000 // Conservative default
-    }
-}
-
-pub use anthropic::AnthropicProvider;
-pub use deepseek::DeepSeekProvider;
-pub use moonshot::MoonshotProvider;
-pub use ollama::OllamaProvider;
-pub use openai::OpenAIProvider;
-pub use openrouter::OpenRouterProvider;
-pub use qwen::QwenProvider;
-pub use zhipu::ZhipuProvider;
+#[cfg(feature = "zhipu")]
+pub use smartassist_providers::zhipu::ZhipuProvider;

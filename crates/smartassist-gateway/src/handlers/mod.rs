@@ -371,7 +371,7 @@ pub struct SessionData {
     pub key: String,
     pub agent_id: Option<String>,
     pub status: String,
-    pub messages: Vec<serde_json::Value>,
+    pub messages: Vec<smartassist_core::types::Message>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub last_activity: Option<chrono::DateTime<chrono::Utc>>,
 }

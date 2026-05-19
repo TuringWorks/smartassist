@@ -1,6 +1,6 @@
 //! Session types for conversation management.
 
-use super::{AgentId, SessionKey, ThinkingLevel};
+use super::{AgentId, SessionKey, ThinkingLevel, ToolDefinition};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -162,6 +162,28 @@ pub enum Role {
     Tool,
 }
 
+impl Role {
+    /// Check if this is a system message.
+    pub fn is_system(&self) -> bool {
+        matches!(self, Self::System)
+    }
+
+    /// Check if this is a user message.
+    pub fn is_user(&self) -> bool {
+        matches!(self, Self::User)
+    }
+
+    /// Check if this is an assistant message.
+    pub fn is_assistant(&self) -> bool {
+        matches!(self, Self::Assistant)
+    }
+
+    /// Check if this is a tool result message.
+    pub fn is_tool(&self) -> bool {
+        matches!(self, Self::Tool)
+    }
+}
+
 /// Content of a message.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -234,18 +256,48 @@ pub enum ContentBlock {
     Thinking { thinking: String },
 }
 
+/// Image source type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ImageSourceType {
+    /// Base64-encoded image data.
+    Base64,
+    /// URL to an image.
+    Url,
+}
+
 /// Source of an image.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImageSource {
-    /// Source type (usually "base64").
+    /// Source type.
     #[serde(rename = "type")]
-    pub source_type: String,
+    pub source_type: ImageSourceType,
 
-    /// MIME type.
+    /// MIME type (e.g., "image/jpeg").
     pub media_type: String,
 
-    /// Base64-encoded data.
+    /// Image data (base64 for Base64, URL for Url).
     pub data: String,
+}
+
+impl ImageSource {
+    /// Create a base64 image source.
+    pub fn base64(media_type: impl Into<String>, data: impl Into<String>) -> Self {
+        Self {
+            source_type: ImageSourceType::Base64,
+            media_type: media_type.into(),
+            data: data.into(),
+        }
+    }
+
+    /// Create a URL image source.
+    pub fn url(url: impl Into<String>) -> Self {
+        Self {
+            source_type: ImageSourceType::Url,
+            media_type: String::new(),
+            data: url.into(),
+        }
+    }
 }
 
 /// Token usage statistics.
@@ -331,6 +383,195 @@ pub struct SessionMetadata {
     #[serde(default)]
     pub labels: HashMap<String, String>,
 }
+
+/// Reason the model stopped generating.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StopReason {
+    /// Natural end of response.
+    EndTurn,
+    /// Hit a stop sequence.
+    StopSequence,
+    /// Hit max tokens limit.
+    MaxTokens,
+    /// Model wants to use a tool.
+    ToolUse,
+    /// Content was filtered.
+    ContentFilter,
+    /// Unknown reason.
+    Unknown,
+}
+
+/// Tool choice mode.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolChoice {
+    /// Model decides whether to use tools.
+    Auto,
+    /// Model must use a tool.
+    Any,
+    /// Model cannot use tools.
+    None,
+    /// Model must use a specific tool.
+    Tool { name: String },
+}
+
+/// Chat completion options.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ChatOptions {
+    /// Maximum tokens to generate.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<usize>,
+
+    /// Temperature for sampling (0.0 to 2.0).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f32>,
+
+    /// Top-p sampling parameter.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_p: Option<f32>,
+
+    /// Top-k sampling parameter.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_k: Option<usize>,
+
+    /// Stop sequences.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stop: Option<Vec<String>>,
+
+    /// Tools available for the model to use.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<ToolDefinition>>,
+
+    /// Tool choice mode.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_choice: Option<ToolChoice>,
+
+    /// User identifier for rate limiting/abuse detection.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
+
+    /// Additional provider-specific options.
+    #[serde(flatten)]
+    pub extra: HashMap<String, Value>,
+}
+
+impl ChatOptions {
+    /// Create new chat options with max tokens.
+    pub fn with_max_tokens(max_tokens: usize) -> Self {
+        Self {
+            max_tokens: Some(max_tokens),
+            ..Default::default()
+        }
+    }
+
+    /// Set temperature.
+    pub fn temperature(mut self, temp: f32) -> Self {
+        self.temperature = Some(temp);
+        self
+    }
+
+    /// Set tools.
+    pub fn tools(mut self, tools: Vec<ToolDefinition>) -> Self {
+        self.tools = Some(tools);
+        self
+    }
+
+    /// Set tool choice.
+    pub fn tool_choice(mut self, choice: ToolChoice) -> Self {
+        self.tool_choice = Some(choice);
+        self
+    }
+}
+
+/// Chat completion response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatResponse {
+    /// Response ID.
+    pub id: String,
+
+    /// Model used.
+    pub model: String,
+
+    /// Response content (may contain structured blocks).
+    pub content: MessageContent,
+
+    /// Stop reason.
+    pub stop_reason: StopReason,
+
+    /// Token usage.
+    pub usage: TokenUsage,
+
+    /// Tool calls requested by the model.
+    #[serde(default)]
+    pub tool_calls: Vec<ContentBlock>,
+
+    /// Response metadata.
+    #[serde(default)]
+    pub metadata: HashMap<String, Value>,
+}
+
+impl ChatResponse {
+    /// Check if the model wants to use tools.
+    pub fn has_tool_calls(&self) -> bool {
+        self.tool_calls.iter().any(|b| matches!(b, ContentBlock::ToolUse { .. }))
+    }
+
+    /// Get the text content of the response.
+    pub fn to_text(&self) -> String {
+        self.content.to_text()
+    }
+}
+
+/// Streaming event from a model provider.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum StreamEvent {
+    /// Stream started.
+    Start {
+        id: String,
+        model: String,
+    },
+
+    /// Text content delta.
+    ContentDelta {
+        delta: String,
+    },
+
+    /// Thinking content delta (extended thinking).
+    ThinkingDelta {
+        delta: String,
+    },
+
+    /// Tool use started.
+    ToolUseStart {
+        id: String,
+        name: String,
+    },
+
+    /// Tool input delta (partial JSON).
+    ToolInputDelta {
+        id: String,
+        delta: String,
+    },
+
+    /// Token usage update.
+    Usage {
+        usage: TokenUsage,
+    },
+
+    /// Stream completed.
+    End {
+        stop_reason: StopReason,
+        usage: TokenUsage,
+    },
+
+    /// Error occurred.
+    Error {
+        message: String,
+    },
+}
+
 
 #[cfg(test)]
 mod tests {

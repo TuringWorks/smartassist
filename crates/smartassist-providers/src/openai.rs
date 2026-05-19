@@ -3,9 +3,9 @@
 //! This module provides integration with OpenAI's GPT models.
 
 use crate::{
-    ChatOptions, ChatResponse, CompletionStream, Message, MessageContent, MessageRole, ModelInfo,
-    Provider, ProviderCapabilities, ProviderError, Result, StopReason, StreamEvent, TokenCount,
-    ToolUse, Usage,
+    ChatOptions, ChatResponse, CompletionStream, ContentBlock, ImageSourceType, Message,
+    MessageContent, ModelCapabilities, ModelInfo, Provider, ProviderCapabilities, ProviderError,
+    Result, Role, StopReason, StreamEvent, TokenCount, TokenUsage, ToolChoice, ToolDefinition,
 };
 use async_trait::async_trait;
 use eventsource_stream::Eventsource;
@@ -90,35 +90,43 @@ impl OpenAIProvider {
 
         for msg in messages {
             let role = match msg.role {
-                MessageRole::System => "system",
-                MessageRole::User => "user",
-                MessageRole::Assistant => "assistant",
-                MessageRole::Tool => "tool",
+                Role::System => "system",
+                Role::User => "user",
+                Role::Assistant => "assistant",
+                Role::Tool => "tool",
             };
 
             let content = match &msg.content {
                 MessageContent::Text(s) => OpenAIContent::Text(s.clone()),
-                MessageContent::Parts(parts) => {
+                MessageContent::Blocks(blocks) => {
                     let mut openai_parts = Vec::new();
-                    for part in parts {
-                        match part {
-                            crate::ContentPart::Text(s) => {
-                                openai_parts.push(OpenAIContentPart::Text { text: s.clone() });
+                    for block in blocks {
+                        match block {
+                            ContentBlock::Text { text } => {
+                                openai_parts.push(OpenAIContentPart::Text { text: text.clone() });
                             }
-                            crate::ContentPart::Image(img) => {
-                                let url = if img.source_type == crate::ImageSourceType::Base64 {
+                            ContentBlock::Image { source } => {
+                                let url = if source.source_type == ImageSourceType::Base64 {
                                     format!(
                                         "data:{};base64,{}",
-                                        img.media_type, img.data
+                                        source.media_type, source.data
                                     )
                                 } else {
-                                    img.data.clone()
+                                    source.data.clone()
                                 };
                                 openai_parts.push(OpenAIContentPart::ImageUrl {
                                     image_url: ImageUrl { url },
                                 });
                             }
-                            _ => {}
+                            ContentBlock::ToolResult { tool_use_id, content: result_content, .. } => {
+                                // Tool results are sent as separate messages with role "tool"
+                                // in OpenAI's format; handled below.
+                                let _ = (tool_use_id, result_content);
+                            }
+                            ContentBlock::ToolUse { .. } | ContentBlock::Thinking { .. } => {
+                                // Skip tool use requests and thinking blocks in content conversion;
+                                // tool calls are handled separately via the tool_calls field.
+                            }
                         }
                     }
                     OpenAIContent::Parts(openai_parts)
@@ -129,7 +137,7 @@ impl OpenAIProvider {
                 role: role.to_string(),
                 content: Some(content),
                 name: msg.name.clone(),
-                tool_call_id: msg.tool_call_id.clone(),
+                tool_call_id: msg.tool_use_id.clone(),
                 tool_calls: None,
             };
 
@@ -140,7 +148,7 @@ impl OpenAIProvider {
     }
 
     /// Convert tools to OpenAI format.
-    fn convert_tools(&self, tools: &[crate::ToolDefinition]) -> Vec<OpenAITool> {
+    fn convert_tools(&self, tools: &[ToolDefinition]) -> Vec<OpenAITool> {
         tools
             .iter()
             .map(|t| OpenAITool {
@@ -149,6 +157,8 @@ impl OpenAIProvider {
                     name: t.name.clone(),
                     description: t.description.clone(),
                     parameters: t.input_schema.clone(),
+                    // Note: t.execution is ignored — it's internal routing config,
+                    // not part of the OpenAI tool definition format.
                 },
             })
             .collect()
@@ -163,26 +173,26 @@ impl OpenAIProvider {
             .ok_or_else(|| ProviderError::internal("No choices in response"))?;
 
         let content = match choice.message.content {
-            Some(OpenAIContent::Text(s)) => s,
+            Some(OpenAIContent::Text(s)) => MessageContent::Text(s),
             Some(OpenAIContent::Parts(parts)) => {
-                parts
+                let blocks: Vec<ContentBlock> = parts
                     .into_iter()
                     .filter_map(|p| match p {
-                        OpenAIContentPart::Text { text } => Some(text),
+                        OpenAIContentPart::Text { text } => Some(ContentBlock::Text { text }),
                         _ => None,
                     })
-                    .collect::<Vec<_>>()
-                    .join("")
+                    .collect();
+                MessageContent::Blocks(blocks)
             }
-            None => String::new(),
+            None => MessageContent::Text(String::new()),
         };
 
-        let tool_calls = choice
+        let tool_calls: Vec<ContentBlock> = choice
             .message
             .tool_calls
             .unwrap_or_default()
             .into_iter()
-            .map(|tc| ToolUse {
+            .map(|tc| ContentBlock::ToolUse {
                 id: tc.id,
                 name: tc.function.name,
                 input: serde_json::from_str(&tc.function.arguments).unwrap_or_default(),
@@ -203,11 +213,11 @@ impl OpenAIProvider {
             content,
             tool_calls,
             stop_reason,
-            usage: Usage {
-                input_tokens: response.usage.prompt_tokens,
-                output_tokens: response.usage.completion_tokens,
-                cache_read_tokens: 0,
-                cache_creation_tokens: 0,
+            usage: TokenUsage {
+                input: response.usage.prompt_tokens as u64,
+                output: response.usage.completion_tokens as u64,
+                cache_creation: 0,
+                cache_read: 0,
             },
             metadata: HashMap::new(),
         })
@@ -279,13 +289,17 @@ impl Provider for OpenAIProvider {
 
                 ModelInfo {
                     id: m.id.clone(),
-                    name: m.id.clone(),
-                    description: String::new(),
+                    provider: "openai".to_string(),
+                    display_name: m.id.clone(),
+                    capabilities: ModelCapabilities {
+                        tool_use: true,
+                        vision: true,
+                        streaming: true,
+                        ..Default::default()
+                    },
                     context_window,
-                    max_output,
-                    input_price: 0.0,
-                    output_price: 0.0,
-                    capabilities: vec!["tools".to_string()],
+                    max_output_tokens: max_output,
+                    pricing: None,
                 }
             })
             .collect();
@@ -311,10 +325,10 @@ impl Provider for OpenAIProvider {
             stop: options.stop,
             tools: options.tools.as_ref().map(|t| self.convert_tools(t)),
             tool_choice: options.tool_choice.as_ref().map(|c| match c {
-                crate::ToolChoice::Auto => OpenAIToolChoice::Auto,
-                crate::ToolChoice::Any => OpenAIToolChoice::Required,
-                crate::ToolChoice::None => OpenAIToolChoice::None,
-                crate::ToolChoice::Tool { name } => OpenAIToolChoice::Function {
+                ToolChoice::Auto => OpenAIToolChoice::Auto,
+                ToolChoice::Any => OpenAIToolChoice::Required,
+                ToolChoice::None => OpenAIToolChoice::None,
+                ToolChoice::Tool { name } => OpenAIToolChoice::Function {
                     name: name.clone(),
                 },
             }),
@@ -387,10 +401,10 @@ impl Provider for OpenAIProvider {
             stop: options.stop,
             tools: options.tools.as_ref().map(|t| self.convert_tools(t)),
             tool_choice: options.tool_choice.as_ref().map(|c| match c {
-                crate::ToolChoice::Auto => OpenAIToolChoice::Auto,
-                crate::ToolChoice::Any => OpenAIToolChoice::Required,
-                crate::ToolChoice::None => OpenAIToolChoice::None,
-                crate::ToolChoice::Tool { name } => OpenAIToolChoice::Function {
+                ToolChoice::Auto => OpenAIToolChoice::Auto,
+                ToolChoice::Any => OpenAIToolChoice::Required,
+                ToolChoice::None => OpenAIToolChoice::None,
+                ToolChoice::Tool { name } => OpenAIToolChoice::Function {
                     name: name.clone(),
                 },
             }),
@@ -473,7 +487,7 @@ impl Provider for OpenAIProvider {
 
                                         return Some(Ok(StreamEvent::End {
                                             stop_reason,
-                                            usage: Usage::default(),
+                                            usage: TokenUsage::default(),
                                         }));
                                     }
                                 }
@@ -498,8 +512,7 @@ impl Provider for OpenAIProvider {
         // We estimate based on characters (~4 chars per token)
         let total_chars: usize = messages
             .iter()
-            .filter_map(|m| m.text())
-            .map(|t| t.len())
+            .map(|m| m.content.to_text().len())
             .sum();
 
         Ok(TokenCount {

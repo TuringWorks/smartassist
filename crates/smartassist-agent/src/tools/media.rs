@@ -20,7 +20,7 @@ use tracing::debug;
 /// Image tool - Analyze images with vision models.
 pub struct ImageTool {
     /// Model provider for vision capabilities.
-    provider: Option<Arc<dyn crate::providers::ModelProvider>>,
+    provider: Option<Arc<dyn crate::providers::Provider>>,
 }
 
 impl Default for ImageTool {
@@ -35,7 +35,7 @@ impl ImageTool {
     }
 
     /// Set the vision model provider.
-    pub fn with_provider(mut self, provider: Arc<dyn crate::providers::ModelProvider>) -> Self {
+    pub fn with_provider(mut self, provider: Arc<dyn crate::providers::Provider>) -> Self {
         self.provider = Some(provider);
         self
     }

@@ -1,5 +1,6 @@
-import { Show, Index, createSignal, For } from "solid-js";
+import { Show, Index, createSignal, For, createResource } from "solid-js";
 import { useConfig } from "../lib/useConfig";
+import { listSecrets } from "../lib/tauri";
 import type { ThinkingLevel, ToolProfile, AgentConfig } from "../lib/types";
 import {
   TextInput,
@@ -86,6 +87,7 @@ export default function Agents() {
   const { config, dirty, saving, toast, updateConfig, save, discard } =
     useConfig();
   const [editingAgent, setEditingAgent] = createSignal<string | null>(null);
+  const [secrets] = createResource(listSecrets);
 
   const agentEntries = () => {
     const c = config();
@@ -101,16 +103,23 @@ export default function Agents() {
         {(cfg) => (
           <>
             <Section title="Defaults">
-              <TextInput
+              <EnumSelect<string>
                 label="Default Agent"
                 value={cfg().agents.default ?? ""}
+                options={[
+                  { value: "", label: "None" },
+                  ...Object.values(cfg().agents.agents).map(a => ({
+                    value: a.id,
+                    label: a.name ? `${a.name} (${a.id})` : a.id
+                  }))
+                ]}
                 onChange={(v) =>
                   updateConfig((c) => {
                     c.agents.default = v || undefined;
                     return c;
                   })
                 }
-                help="ID of the default agent to use"
+                help="Select the default agent to use"
               />
               <ModelSelect
                 label="Default Model"
@@ -224,6 +233,21 @@ export default function Agents() {
                               return c;
                             })
                           }
+                        />
+                        <EnumSelect
+                          label="API Key"
+                          value={agent.api_key_name ?? ""}
+                          options={[
+                            { value: "", label: "Default Key for Provider" },
+                            ...(secrets() || []).map((s) => ({ value: s, label: s }))
+                          ]}
+                          onChange={(v) =>
+                            updateConfig((c) => {
+                              c.agents.agents[id].api_key_name = v || undefined;
+                              return c;
+                            })
+                          }
+                          help="Select a specific API key to use, or leave as Default."
                         />
                         <EnumSelect<ThinkingLevel>
                           label="Thinking Level"

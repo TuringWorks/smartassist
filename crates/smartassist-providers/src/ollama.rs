@@ -3,9 +3,9 @@
 //! Supports local LLM inference via Ollama's native API.
 
 use crate::{
-    ChatOptions, ChatResponse, CompletionStream, Message, MessageContent, MessageRole, ModelInfo,
-    Provider, ProviderCapabilities, ProviderError, Result, StopReason, StreamEvent, TokenCount,
-    Usage,
+    ChatOptions, ChatResponse, CompletionStream, Message, MessageContent, ModelCapabilities,
+    ModelInfo, Provider, ProviderCapabilities, ProviderError, Result, Role, StopReason,
+    StreamEvent, TokenCount, TokenUsage,
 };
 use async_trait::async_trait;
 use futures::StreamExt;
@@ -64,20 +64,21 @@ impl OllamaProvider {
             .iter()
             .map(|msg| {
                 let role = match msg.role {
-                    MessageRole::System => "system",
-                    MessageRole::User => "user",
-                    MessageRole::Assistant => "assistant",
-                    MessageRole::Tool => "user",
+                    Role::System => "system",
+                    Role::User => "user",
+                    Role::Assistant => "assistant",
+                    Role::Tool => "user", // Ollama has no tool role; map to user
                 };
 
                 let content = match &msg.content {
                     MessageContent::Text(s) => s.clone(),
-                    MessageContent::Parts(parts) => {
-                        parts
+                    MessageContent::Blocks(blocks) => {
+                        // Ollama has no tool support; silently drop non-text blocks
+                        blocks
                             .iter()
-                            .filter_map(|p| match p {
-                                crate::ContentPart::Text(s) => Some(s.clone()),
-                                _ => None,
+                            .filter_map(|b| match b {
+                                crate::ContentBlock::Text { text } => Some(text.clone()),
+                                _ => None, // Drop images, tool calls, tool results, thinking
                             })
                             .collect::<Vec<_>>()
                             .join("")
@@ -98,18 +99,18 @@ impl OllamaProvider {
         Ok(ChatResponse {
             id: format!("ollama-{}-{}", response.model, response.created_at.unwrap_or_default()),
             model: response.model,
-            content,
-            tool_calls: vec![],
+            content: MessageContent::Text(content),
+            tool_calls: vec![], // Ollama has no tool support
             stop_reason: if response.done {
                 StopReason::EndTurn
             } else {
                 StopReason::Unknown
             },
-            usage: Usage {
-                input_tokens: response.prompt_eval_count.unwrap_or(0),
-                output_tokens: response.eval_count.unwrap_or(0),
-                cache_read_tokens: 0,
-                cache_creation_tokens: 0,
+            usage: TokenUsage {
+                input: response.prompt_eval_count.unwrap_or(0) as u64,
+                output: response.eval_count.unwrap_or(0) as u64,
+                cache_creation: 0,
+                cache_read: 0,
             },
             metadata: HashMap::new(),
         })
@@ -146,13 +147,15 @@ impl Provider for OllamaProvider {
             .into_iter()
             .map(|m| ModelInfo {
                 id: m.name.clone(),
-                name: m.name.clone(),
-                description: m.details.and_then(|d| d.family).unwrap_or_default(),
+                provider: "ollama".to_string(),
+                display_name: m.name.clone(),
+                capabilities: ModelCapabilities {
+                    streaming: true,
+                    ..Default::default()
+                },
                 context_window: 128_000,
-                max_output: 16_384,
-                input_price: 0.0,
-                output_price: 0.0,
-                capabilities: vec![],
+                max_output_tokens: 16_384,
+                pricing: None,
             })
             .collect();
 
@@ -246,11 +249,11 @@ impl Provider for OllamaProvider {
                                 if chunk.done {
                                     return Some(Ok(StreamEvent::End {
                                         stop_reason: StopReason::EndTurn,
-                                        usage: Usage {
-                                            input_tokens: chunk.prompt_eval_count.unwrap_or(0),
-                                            output_tokens: chunk.eval_count.unwrap_or(0),
-                                            cache_read_tokens: 0,
-                                            cache_creation_tokens: 0,
+                                        usage: TokenUsage {
+                                            input: chunk.prompt_eval_count.unwrap_or(0) as u64,
+                                            output: chunk.eval_count.unwrap_or(0) as u64,
+                                            cache_creation: 0,
+                                            cache_read: 0,
                                         },
                                     }));
                                 }
@@ -277,8 +280,7 @@ impl Provider for OllamaProvider {
     async fn count_tokens(&self, _model: &str, messages: &[Message]) -> Result<TokenCount> {
         let total_chars: usize = messages
             .iter()
-            .filter_map(|m| m.text())
-            .map(|t| t.len())
+            .map(|m| m.content.to_text().len())
             .sum();
 
         Ok(TokenCount {

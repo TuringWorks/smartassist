@@ -7,9 +7,10 @@ use smartassist_providers::{
     anthropic::AnthropicProvider, google::GoogleProvider, openai::OpenAIProvider,
     ollama::OllamaProvider, Provider,
 };
-use std::net::TcpStream;
 use std::sync::Arc;
-use tracing::info;
+use tokio::net::TcpStream;
+use tracing::{debug, info};
+use smartassist_secrets::FileSecretStore;
 
 /// Gateway command arguments.
 #[derive(Args)]
@@ -86,6 +87,26 @@ pub async fn run(args: GatewayArgs) -> anyhow::Result<()> {
                 require_auth,
                 ..Default::default()
             };
+
+            // Attempt to populate environment variables from secure secret store
+            // so that from_env() works even if the user hasn't explicitly exported them in their shell.
+            if let Ok(store) = FileSecretStore::from_default_dir() {
+                debug!("Loaded secure secret store, injecting standard provider keys into environment...");
+                
+                let mapping = [
+                    ("anthropic_api_key", "ANTHROPIC_API_KEY"),
+                    ("openai_api_key", "OPENAI_API_KEY"),
+                    ("google_api_key", "GOOGLE_API_KEY"),
+                ];
+
+                for (secret_name, env_var) in mapping.iter() {
+                    if std::env::var(env_var).is_err() {
+                        if let Ok(Some(secret_val)) = store.get(secret_name).await {
+                            std::env::set_var(env_var, secret_val);
+                        }
+                    }
+                }
+            }
 
             // Try to create provider from environment
             let provider_instance: Option<Arc<dyn Provider>> = match provider.as_str() {

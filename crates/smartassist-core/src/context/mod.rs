@@ -6,5 +6,5 @@
 pub mod monitor;
 pub mod compactor;
 
-pub use monitor::{ContextMonitor, CompactionStrategy};
+pub use monitor::{ContextMonitor, ContextMonitorConfig, CompactionStrategy};
 pub use compactor::{ContextCompactor, CompactionResult};

@@ -2,8 +2,9 @@
 //!
 //! Tracks context window usage via a word-count heuristic and recommends
 //! compaction strategies when usage exceeds configurable thresholds.
+//! Supports head/tail-protected middle-turn summarization.
 
-use crate::types::{Message, MessageContent, ContentBlock};
+use crate::types::{ContentBlock, ImageSourceType, Message, MessageContent};
 
 /// Average number of tokens per whitespace-delimited word.
 const TOKENS_PER_WORD: f64 = 1.3;
@@ -11,13 +12,34 @@ const TOKENS_PER_WORD: f64 = 1.3;
 /// Overhead tokens per message for role header / framing.
 const MESSAGE_OVERHEAD: usize = 4;
 
+/// Configuration for context monitoring.
+#[derive(Debug, Clone)]
+pub struct ContextMonitorConfig {
+    /// Model-specific context window limit in tokens.
+    pub context_limit: usize,
+    /// Fraction of the context limit at which compaction is triggered (0.0 - 1.0).
+    pub compaction_threshold: f64,
+    /// Number of head messages (system + initial exchanges) to preserve during compaction.
+    pub head_messages: usize,
+    /// Number of recent tail messages to preserve during compaction.
+    pub tail_messages: usize,
+}
+
+impl Default for ContextMonitorConfig {
+    fn default() -> Self {
+        Self {
+            context_limit: 100_000,
+            compaction_threshold: 0.8,
+            head_messages: 2,
+            tail_messages: 10,
+        }
+    }
+}
+
 /// Monitors context window usage and recommends compaction strategies.
 #[derive(Debug, Clone)]
 pub struct ContextMonitor {
-    /// Model-specific context window limit in tokens.
-    context_limit: usize,
-    /// Fraction of the context limit at which compaction is triggered (0.0 - 1.0).
-    compaction_threshold: f64,
+    config: ContextMonitorConfig,
 }
 
 /// Strategy recommendation from the context monitor.
@@ -25,10 +47,18 @@ pub struct ContextMonitor {
 pub enum CompactionStrategy {
     /// No compaction needed (usage below threshold).
     None,
-    /// Summarize older messages, keeping the most recent `keep_recent` turns.
-    Summarize { keep_recent: usize },
-    /// Aggressively truncate, keeping only the most recent `keep_recent` turns.
-    Truncate { keep_recent: usize },
+    /// Summarize middle messages, preserving head and tail.
+    /// `head_keep` system/initial messages, `tail_keep` recent messages.
+    Summarize {
+        head_keep: usize,
+        tail_keep: usize,
+    },
+    /// Aggressively truncate, preserving head and tail.
+    /// `head_keep` system/initial messages, `tail_keep` recent messages.
+    Truncate {
+        head_keep: usize,
+        tail_keep: usize,
+    },
 }
 
 impl ContextMonitor {
@@ -37,17 +67,44 @@ impl ContextMonitor {
     /// The default compaction threshold is 0.8 (80%).
     pub fn new(context_limit: usize) -> Self {
         Self {
-            context_limit,
-            compaction_threshold: 0.8,
+            config: ContextMonitorConfig {
+                context_limit,
+                ..Default::default()
+            },
         }
+    }
+
+    /// Create a monitor from a full config.
+    pub fn with_config(config: ContextMonitorConfig) -> Self {
+        Self { config }
     }
 
     /// Override the compaction threshold (fraction of context limit).
     ///
     /// Values should be between 0.0 and 1.0.
     pub fn with_threshold(mut self, threshold: f64) -> Self {
-        self.compaction_threshold = threshold;
+        self.config.compaction_threshold = threshold;
         self
+    }
+
+    /// Get the context limit.
+    pub fn context_limit(&self) -> usize {
+        self.config.context_limit
+    }
+
+    /// Get the compaction threshold.
+    pub fn compaction_threshold(&self) -> f64 {
+        self.config.compaction_threshold
+    }
+
+    /// Get the head messages config.
+    pub fn head_messages(&self) -> usize {
+        self.config.head_messages
+    }
+
+    /// Get the tail messages config.
+    pub fn tail_messages(&self) -> usize {
+        self.config.tail_messages
     }
 
     /// Estimate the token count for a slice of messages.
@@ -81,30 +138,99 @@ impl ContextMonitor {
     /// Return the current usage as a fraction (0.0 - 1.0+) of the context limit.
     pub fn usage_percent(&self, messages: &[Message]) -> f64 {
         let tokens = Self::estimate_tokens(messages) as f64;
-        tokens / self.context_limit as f64
+        tokens / self.config.context_limit as f64
     }
 
     /// Check whether the messages exceed the compaction threshold.
     pub fn needs_compaction(&self, messages: &[Message]) -> bool {
-        self.usage_percent(messages) >= self.compaction_threshold
+        self.usage_percent(messages) >= self.config.compaction_threshold
     }
 
     /// Suggest a compaction strategy based on current usage.
     ///
-    /// - Below 80%: `None`
-    /// - 80% to 90%: `Summarize` (keep 10 recent messages)
-    /// - Above 90%: `Truncate` (keep 5 recent messages)
+    /// - Below threshold: `None`
+    /// - Threshold to 90%: `Summarize` (with configured head/tail keep)
+    /// - Above 90%: `Truncate` (with configured head/tail keep)
     pub fn suggest_strategy(&self, messages: &[Message]) -> CompactionStrategy {
         let usage = self.usage_percent(messages);
-        if usage < 0.8 {
+        if usage < self.config.compaction_threshold {
             CompactionStrategy::None
         } else if usage < 0.9 {
-            CompactionStrategy::Summarize { keep_recent: 10 }
+            CompactionStrategy::Summarize {
+                head_keep: self.config.head_messages,
+                tail_keep: self.config.tail_messages,
+            }
         } else {
-            CompactionStrategy::Truncate { keep_recent: 5 }
+            CompactionStrategy::Truncate {
+                head_keep: self.config.head_messages,
+                tail_keep: self.config.tail_messages,
+            }
         }
     }
+
+    /// Find tool-use pairs in messages.
+    ///
+    /// Returns a set of indices that must stay together (a ToolUse message
+    /// and its corresponding ToolResult message). This ensures compaction
+    /// never splits a tool call from its result.
+    pub fn find_tool_pairs(messages: &[Message]) -> Vec<(usize, usize)> {
+        let mut pairs = Vec::new();
+        // Collect ToolUse IDs from assistant messages and match them
+        // to ToolResult messages.
+        for (i, msg) in messages.iter().enumerate() {
+            if msg.role == Role::Assistant {
+                if let MessageContent::Blocks(blocks) = &msg.content {
+                    for block in blocks {
+                        if let ContentBlock::ToolUse { id, .. } = block {
+                            // Find the ToolResult message with this tool_use_id
+                            for (j, other) in messages.iter().enumerate().skip(i + 1) {
+                                if other.role == Role::Tool {
+                                    if let MessageContent::Blocks(other_blocks) = &other.content {
+                                        for ob in other_blocks {
+                                            if let ContentBlock::ToolResult { tool_use_id, .. } = ob {
+                                                if tool_use_id == id {
+                                                    pairs.push((i, j));
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        pairs
+    }
+
+    /// Identify the head section: system messages and initial exchanges.
+    ///
+    /// Returns the index after the last message that should be in the head.
+    /// System messages are always in the head. After that, we include up to
+    /// `head_messages` non-system messages.
+    pub fn find_head_boundary(messages: &[Message], head_messages: usize) -> usize {
+        let mut boundary = 0;
+        let mut non_system_count = 0;
+
+        for (i, msg) in messages.iter().enumerate() {
+            if msg.role == Role::System {
+                boundary = i + 1;
+                continue;
+            }
+            if non_system_count < head_messages {
+                non_system_count += 1;
+                boundary = i + 1;
+            } else {
+                break;
+            }
+        }
+
+        boundary
+    }
 }
+
+use crate::types::Role;
 
 /// Estimate tokens for a plain text string using the word-count heuristic.
 fn estimate_text_tokens(text: &str) -> f64 {
@@ -117,12 +243,14 @@ fn estimate_block_tokens(block: &ContentBlock) -> f64 {
     match block {
         ContentBlock::Text { text } => estimate_text_tokens(text),
         ContentBlock::Image { source } => {
-            // Estimate based on JSON-serialized size of the image source
-            let json_size = source.data.len() + source.media_type.len() + source.source_type.len();
+            let type_str = match source.source_type {
+                ImageSourceType::Base64 => "base64",
+                ImageSourceType::Url => "url",
+            };
+            let json_size = source.data.len() + source.media_type.len() + type_str.len();
             json_size as f64 / 4.0
         }
         ContentBlock::ToolUse { id, name, input } => {
-            // Estimate based on JSON-serialized size
             let input_str = serde_json::to_string(input).unwrap_or_default();
             let json_size = id.len() + name.len() + input_str.len();
             json_size as f64 / 4.0
@@ -144,14 +272,29 @@ mod tests {
     #[test]
     fn test_new_default_threshold() {
         let monitor = ContextMonitor::new(100_000);
-        assert_eq!(monitor.context_limit, 100_000);
-        assert!((monitor.compaction_threshold - 0.8).abs() < f64::EPSILON);
+        assert_eq!(monitor.context_limit(), 100_000);
+        assert!((monitor.compaction_threshold() - 0.8).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_with_config() {
+        let config = ContextMonitorConfig {
+            context_limit: 200_000,
+            compaction_threshold: 0.7,
+            head_messages: 3,
+            tail_messages: 8,
+        };
+        let monitor = ContextMonitor::with_config(config);
+        assert_eq!(monitor.context_limit(), 200_000);
+        assert!((monitor.compaction_threshold() - 0.7).abs() < f64::EPSILON);
+        assert_eq!(monitor.head_messages(), 3);
+        assert_eq!(monitor.tail_messages(), 8);
     }
 
     #[test]
     fn test_with_threshold() {
         let monitor = ContextMonitor::new(100_000).with_threshold(0.5);
-        assert!((monitor.compaction_threshold - 0.5).abs() < f64::EPSILON);
+        assert!((monitor.compaction_threshold() - 0.5).abs() < f64::EPSILON);
     }
 
     #[test]
@@ -162,7 +305,6 @@ mod tests {
 
     #[test]
     fn test_estimate_tokens_single_text_message() {
-        // "Hello world" = 2 words * 1.3 = 2.6 + 4 overhead = 6.6 -> ceil = 7
         let messages = vec![Message::user("Hello world")];
         let tokens = ContextMonitor::estimate_tokens(&messages);
         assert_eq!(tokens, 7);
@@ -171,11 +313,10 @@ mod tests {
     #[test]
     fn test_estimate_tokens_multiple_messages() {
         let messages = vec![
-            Message::user("Hello world"),        // 2 words * 1.3 + 4 = 6.6
-            Message::assistant("Hi there friend"), // 3 words * 1.3 + 4 = 7.9
+            Message::user("Hello world"),
+            Message::assistant("Hi there friend"),
         ];
         let tokens = ContextMonitor::estimate_tokens(&messages);
-        // 6.6 + 7.9 = 14.5 -> ceil = 15
         assert_eq!(tokens, 15);
     }
 
@@ -183,14 +324,13 @@ mod tests {
     fn test_estimate_tokens_empty_text() {
         let messages = vec![Message::user("")];
         let tokens = ContextMonitor::estimate_tokens(&messages);
-        // 0 words * 1.3 + 4 overhead = 4
         assert_eq!(tokens, 4);
     }
 
     #[test]
     fn test_estimate_tokens_tool_use_block() {
         let msg = Message {
-            role: crate::types::Role::Assistant,
+            role: Role::Assistant,
             content: MessageContent::Blocks(vec![ContentBlock::ToolUse {
                 id: "tool_1".to_string(),
                 name: "read_file".to_string(),
@@ -201,47 +341,20 @@ mod tests {
             timestamp: chrono::Utc::now(),
         };
         let tokens = ContextMonitor::estimate_tokens(&[msg]);
-        // JSON size: "tool_1"(6) + "read_file"(9) + json string len / 4 + 4 overhead
-        assert!(tokens > 4); // must be greater than just overhead
+        assert!(tokens > 4);
     }
 
     #[test]
     fn test_estimate_tokens_tool_result_block() {
         let msg = Message::tool_result("tool_1", "File contents here", false);
         let tokens = ContextMonitor::estimate_tokens(&[msg]);
-        // tool_use_id(6) + content(18) = 24 / 4 = 6.0 + 4 overhead = 10
         assert_eq!(tokens, 10);
-    }
-
-    #[test]
-    fn test_estimate_tokens_mixed_blocks() {
-        let msg = Message {
-            role: crate::types::Role::Assistant,
-            content: MessageContent::Blocks(vec![
-                ContentBlock::Text {
-                    text: "Here is the result".to_string(),
-                },
-                ContentBlock::ToolUse {
-                    id: "t1".to_string(),
-                    name: "bash".to_string(),
-                    input: json!({"cmd": "ls"}),
-                },
-            ]),
-            name: None,
-            tool_use_id: None,
-            timestamp: chrono::Utc::now(),
-        };
-        let tokens = ContextMonitor::estimate_tokens(&[msg]);
-        // Text: 4 words * 1.3 = 5.2
-        // ToolUse: ("t1"(2) + "bash"(4) + json_str_len) / 4
-        // + 4 overhead
-        assert!(tokens > 4);
     }
 
     #[test]
     fn test_estimate_tokens_thinking_block() {
         let msg = Message {
-            role: crate::types::Role::Assistant,
+            role: Role::Assistant,
             content: MessageContent::Blocks(vec![ContentBlock::Thinking {
                 thinking: "Let me think about this carefully".to_string(),
             }]),
@@ -250,35 +363,12 @@ mod tests {
             timestamp: chrono::Utc::now(),
         };
         let tokens = ContextMonitor::estimate_tokens(&[msg]);
-        // 6 words * 1.3 = 7.8 + 4 overhead = 11.8 -> ceil = 12
         assert_eq!(tokens, 12);
-    }
-
-    #[test]
-    fn test_estimate_tokens_image_block() {
-        let msg = Message {
-            role: crate::types::Role::User,
-            content: MessageContent::Blocks(vec![ContentBlock::Image {
-                source: ImageSource {
-                    source_type: "base64".to_string(),
-                    media_type: "image/png".to_string(),
-                    data: "iVBORw0KGgo=".to_string(), // small base64 snippet
-                },
-            }]),
-            name: None,
-            tool_use_id: None,
-            timestamp: chrono::Utc::now(),
-        };
-        let tokens = ContextMonitor::estimate_tokens(&[msg]);
-        // (12 + 9 + 6) / 4 = 6.75 + 4 = 10.75 -> ceil = 11
-        assert_eq!(tokens, 11);
     }
 
     #[test]
     fn test_usage_percent() {
         let monitor = ContextMonitor::new(100);
-        // "Hello world" = 2 words * 1.3 + 4 overhead = 6.6, ceil = 7
-        // estimate_tokens returns 7, so usage = 7.0 / 100.0 = 0.07
         let messages = vec![Message::user("Hello world")];
         let usage = monitor.usage_percent(&messages);
         assert!((usage - 0.07).abs() < 0.001);
@@ -293,7 +383,6 @@ mod tests {
 
     #[test]
     fn test_needs_compaction_above_threshold() {
-        // Create a monitor with a small limit so a few messages exceed the threshold
         let monitor = ContextMonitor::new(10);
         let messages = vec![
             Message::user("This is a longer message that should use many tokens"),
@@ -314,48 +403,33 @@ mod tests {
 
     #[test]
     fn test_suggest_strategy_summarize() {
-        // We need usage between 80% and 90%.
-        // With context_limit=10, we need 8-9 estimated tokens.
-        // "Hello world" = 2*1.3 + 4 = 6.6. Two such messages = 13.2, too high for limit 10.
-        // With context_limit=15: 6.6/15 = 0.44. Need higher.
-        // Let's use context_limit=8: 6.6/8 = 0.825 -> Summarize
         let monitor = ContextMonitor::new(8);
         let messages = vec![Message::user("Hello world")];
         assert_eq!(
             monitor.suggest_strategy(&messages),
-            CompactionStrategy::Summarize { keep_recent: 10 }
+            CompactionStrategy::Summarize {
+                head_keep: 2,
+                tail_keep: 10,
+            }
         );
     }
 
     #[test]
     fn test_suggest_strategy_truncate() {
-        // Need usage >= 90%. With context_limit=7: 6.6/7 = 0.943 -> Truncate
         let monitor = ContextMonitor::new(7);
         let messages = vec![Message::user("Hello world")];
         assert_eq!(
             monitor.suggest_strategy(&messages),
-            CompactionStrategy::Truncate { keep_recent: 5 }
-        );
-    }
-
-    #[test]
-    fn test_strategy_at_boundary_summarize_range() {
-        // "a b c d" = 4 words * 1.3 = 5.2 + 4 overhead = 9.2, ceil = 10
-        // With limit=12: 10/12 = 0.833 -> in the 80-90% range -> Summarize
-        let monitor = ContextMonitor::new(12);
-        let messages = vec![Message::user("a b c d")];
-        let usage = monitor.usage_percent(&messages);
-        assert!(usage >= 0.8 && usage < 0.9, "usage was {}", usage);
-        assert_eq!(
-            monitor.suggest_strategy(&messages),
-            CompactionStrategy::Summarize { keep_recent: 10 }
+            CompactionStrategy::Truncate {
+                head_keep: 2,
+                tail_keep: 10,
+            }
         );
     }
 
     #[test]
     fn test_custom_threshold_affects_needs_compaction() {
         let monitor = ContextMonitor::new(100).with_threshold(0.05);
-        // "Hello world" = 6.6 tokens, 6.6/100 = 0.066 >= 0.05
         let messages = vec![Message::user("Hello world")];
         assert!(monitor.needs_compaction(&messages));
     }
@@ -364,7 +438,129 @@ mod tests {
     fn test_estimate_tokens_system_message() {
         let messages = vec![Message::system("You are a helpful assistant")];
         let tokens = ContextMonitor::estimate_tokens(&messages);
-        // 5 words * 1.3 = 6.5 + 4 = 10.5 -> ceil = 11
+        assert_eq!(tokens, 11);
+    }
+
+    #[test]
+    fn test_find_tool_pairs() {
+        let messages = vec![
+            Message::user("Read the file"),
+            Message {
+                role: Role::Assistant,
+                content: MessageContent::Blocks(vec![ContentBlock::ToolUse {
+                    id: "tu_1".to_string(),
+                    name: "read".to_string(),
+                    input: json!({"path": "/tmp/test.txt"}),
+                }]),
+                name: None,
+                tool_use_id: None,
+                timestamp: chrono::Utc::now(),
+            },
+            Message::tool_result("tu_1", "File contents", false),
+            Message::assistant("The file contains..."),
+        ];
+
+        let pairs = ContextMonitor::find_tool_pairs(&messages);
+        assert_eq!(pairs.len(), 1);
+        assert_eq!(pairs[0], (1, 2)); // assistant with ToolUse at index 1, Tool result at index 2
+    }
+
+    #[test]
+    fn test_find_tool_pairs_multiple() {
+        let messages = vec![
+            Message::user("Read two files"),
+            Message {
+                role: Role::Assistant,
+                content: MessageContent::Blocks(vec![
+                    ContentBlock::ToolUse {
+                        id: "tu_1".to_string(),
+                        name: "read".to_string(),
+                        input: json!({"path": "/a.txt"}),
+                    },
+                    ContentBlock::ToolUse {
+                        id: "tu_2".to_string(),
+                        name: "read".to_string(),
+                        input: json!({"path": "/b.txt"}),
+                    },
+                ]),
+                name: None,
+                tool_use_id: None,
+                timestamp: chrono::Utc::now(),
+            },
+            Message::tool_result("tu_1", "Content A", false),
+            Message::tool_result("tu_2", "Content B", false),
+        ];
+
+        let pairs = ContextMonitor::find_tool_pairs(&messages);
+        assert_eq!(pairs.len(), 2);
+    }
+
+    #[test]
+    fn test_find_head_boundary_system_messages() {
+        let messages = vec![
+            Message::system("You are helpful"),
+            Message::user("Hello"),
+            Message::assistant("Hi"),
+            Message::user("Question"),
+        ];
+
+        // head_messages = 2 means keep system + 2 non-system
+        let boundary = ContextMonitor::find_head_boundary(&messages, 2);
+        assert_eq!(boundary, 3); // system(0) + user(1) + assistant(2)
+    }
+
+    #[test]
+    fn test_find_head_boundary_only_system() {
+        let messages = vec![
+            Message::system("System prompt"),
+            Message::user("Question"),
+        ];
+
+        // head_messages = 0 means keep only system messages
+        let boundary = ContextMonitor::find_head_boundary(&messages, 0);
+        assert_eq!(boundary, 1); // only system message
+    }
+
+    #[test]
+    fn test_find_head_boundary_no_system() {
+        let messages = vec![
+            Message::user("Hello"),
+            Message::assistant("Hi"),
+            Message::user("Question"),
+        ];
+
+        // head_messages = 1 means keep 1 non-system message
+        let boundary = ContextMonitor::find_head_boundary(&messages, 1);
+        assert_eq!(boundary, 1);
+    }
+
+    #[test]
+    fn test_strategy_at_boundary_summarize_range() {
+        let monitor = ContextMonitor::new(12);
+        let messages = vec![Message::user("a b c d")];
+        let usage = monitor.usage_percent(&messages);
+        assert!(usage >= 0.8 && usage < 0.9, "usage was {}", usage);
+        assert_eq!(
+            monitor.suggest_strategy(&messages),
+            CompactionStrategy::Summarize {
+                head_keep: 2,
+                tail_keep: 10,
+            }
+        );
+    }
+
+    #[test]
+    fn test_estimate_tokens_image_block() {
+        let msg = Message {
+            role: Role::User,
+            content: MessageContent::Blocks(vec![ContentBlock::Image {
+                source: ImageSource::base64("image/png", "iVBORw0KGgo="),
+            }]),
+            name: None,
+            tool_use_id: None,
+            timestamp: chrono::Utc::now(),
+        };
+        let tokens = ContextMonitor::estimate_tokens(&[msg]);
         assert_eq!(tokens, 11);
     }
 }

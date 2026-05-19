@@ -307,10 +307,7 @@ impl MethodHandler for SessionsCreateHandler {
         });
 
         if let Some(system) = params.system {
-            session.messages.push(serde_json::json!({
-                "role": "system",
-                "content": system,
-            }));
+            session.messages.push(smartassist_core::types::Message::system(&system));
         }
 
         Ok(serde_json::json!({

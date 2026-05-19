@@ -14,7 +14,7 @@ smartassist-core = { path = "../smartassist-core" }
 smartassist-agent = { path = "../smartassist-agent" }
 smartassist-gateway = { path = "../smartassist-gateway" }
 smartassist-channels = { path = "../smartassist-channels" }
-smartassist-providers = { path = "../smartassist-providers", features = ["anthropic", "openai", "google", "ollama"] }
+smartassist-providers = { path = "../smartassist-providers", features = ["anthropic", "openai", "google", "ollama", "deepseek", "moonshot", "openrouter", "qwen", "zhipu"] }
 smartassist-secrets = { path = "../smartassist-secrets" }
 smartassist-plugin-sdk = { path = "../smartassist-plugin-sdk" }
 

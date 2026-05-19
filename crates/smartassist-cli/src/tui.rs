@@ -307,11 +307,11 @@ async fn handle_key_event(
                 let mut stream = std::pin::pin!(rt.process_message_stream(session, message));
                 while let Some(event) = stream.next().await {
                     let update = match event {
-                        Ok(StreamEvent::Text(text)) => Some(StreamUpdate::Text(text)),
-                        Ok(StreamEvent::Thinking(text)) => Some(StreamUpdate::Thinking(text)),
-                        Ok(StreamEvent::ToolUse { name, .. }) => Some(StreamUpdate::ToolUse { name }),
-                        Ok(StreamEvent::Done) => Some(StreamUpdate::Done),
-                        Ok(StreamEvent::Error(e)) => Some(StreamUpdate::Error(e)),
+                        Ok(StreamEvent::ContentDelta { delta }) => Some(StreamUpdate::Text(delta)),
+                        Ok(StreamEvent::ThinkingDelta { delta }) => Some(StreamUpdate::Thinking(delta)),
+                        Ok(StreamEvent::ToolUseStart { name, .. }) => Some(StreamUpdate::ToolUse { name }),
+                        Ok(StreamEvent::End { .. }) => Some(StreamUpdate::Done),
+                        Ok(StreamEvent::Error { message }) => Some(StreamUpdate::Error(message)),
                         Err(e) => Some(StreamUpdate::Error(e.to_string())),
                         _ => None,
                     };

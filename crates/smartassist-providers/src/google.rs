@@ -3,9 +3,9 @@
 //! This module provides integration with Google's Gemini models.
 
 use crate::{
-    ChatOptions, ChatResponse, CompletionStream, Message, MessageContent, MessageRole, ModelInfo,
-    Provider, ProviderCapabilities, ProviderError, Result, StopReason, StreamEvent, TokenCount,
-    ToolUse, Usage,
+    ChatOptions, ChatResponse, CompletionStream, ContentBlock, Message, MessageContent,
+    ModelCapabilities, ModelInfo, Provider, ProviderCapabilities, ProviderError, Result, Role,
+    StopReason, StreamEvent, TokenCount, TokenUsage, ToolDefinition,
 };
 use async_trait::async_trait;
 use eventsource_stream::Eventsource;
@@ -89,41 +89,40 @@ impl GoogleProvider {
 
         for msg in messages {
             match msg.role {
-                MessageRole::System => {
+                Role::System => {
                     // Gemini uses system_instruction for system messages
-                    if let Some(text) = msg.text() {
-                        system_instruction = Some(GeminiSystemInstruction {
-                            parts: vec![GeminiPart::Text { text: text.to_string() }],
-                        });
-                    }
+                    system_instruction = Some(GeminiSystemInstruction {
+                        parts: vec![GeminiPart::Text { text: msg.content.to_text() }],
+                    });
                 }
-                MessageRole::User => {
+                Role::User => {
                     contents.push(GeminiContent {
                         role: "user".to_string(),
                         parts: self.convert_content(&msg.content)?,
                     });
                 }
-                MessageRole::Assistant => {
+                Role::Assistant => {
+                    // Gemini uses "model" role instead of "assistant"
                     contents.push(GeminiContent {
                         role: "model".to_string(),
                         parts: self.convert_content(&msg.content)?,
                     });
                 }
-                MessageRole::Tool => {
-                    // Tool results in Gemini format
-                    if let Some(tool_call_id) = &msg.tool_call_id {
-                        contents.push(GeminiContent {
-                            role: "user".to_string(),
-                            parts: vec![GeminiPart::FunctionResponse {
-                                function_response: GeminiFunctionResponse {
-                                    name: tool_call_id.clone(),
-                                    response: serde_json::json!({
-                                        "result": msg.text().unwrap_or("")
-                                    }),
-                                },
-                            }],
-                        });
-                    }
+                Role::Tool => {
+                    // Tool results in Gemini format: wrapped as FunctionResponse
+                    let tool_use_id = msg.tool_use_id.as_deref().unwrap_or("");
+                    let result_text = msg.content.to_text();
+                    contents.push(GeminiContent {
+                        role: "user".to_string(),
+                        parts: vec![GeminiPart::FunctionResponse {
+                            function_response: GeminiFunctionResponse {
+                                name: tool_use_id.to_string(),
+                                response: serde_json::json!({
+                                    "result": result_text
+                                }),
+                            },
+                        }],
+                    });
                 }
             }
         }
@@ -135,30 +134,35 @@ impl GoogleProvider {
     fn convert_content(&self, content: &MessageContent) -> Result<Vec<GeminiPart>> {
         match content {
             MessageContent::Text(s) => Ok(vec![GeminiPart::Text { text: s.clone() }]),
-            MessageContent::Parts(parts) => {
+            MessageContent::Blocks(blocks) => {
                 let mut gemini_parts = Vec::new();
-                for part in parts {
-                    match part {
-                        crate::ContentPart::Text(s) => {
-                            gemini_parts.push(GeminiPart::Text { text: s.clone() });
+                for block in blocks {
+                    match block {
+                        ContentBlock::Text { text } => {
+                            gemini_parts.push(GeminiPart::Text { text: text.clone() });
                         }
-                        crate::ContentPart::Image(img) => {
+                        ContentBlock::Image { source } => {
                             gemini_parts.push(GeminiPart::InlineData {
                                 inline_data: InlineData {
-                                    mime_type: img.media_type.clone(),
-                                    data: img.data.clone(),
+                                    mime_type: source.media_type.clone(),
+                                    data: source.data.clone(),
                                 },
                             });
                         }
-                        crate::ContentPart::ToolUse(tool) => {
+                        ContentBlock::ToolUse { id: _, name, input } => {
                             gemini_parts.push(GeminiPart::FunctionCall {
                                 function_call: GeminiFunctionCall {
-                                    name: tool.name.clone(),
-                                    args: tool.input.clone(),
+                                    name: name.clone(),
+                                    args: input.clone(),
                                 },
                             });
                         }
-                        _ => {}
+                        ContentBlock::ToolResult { .. } => {
+                            // Tool results are handled at the message level
+                        }
+                        ContentBlock::Thinking { .. } => {
+                            // Gemini does not have a thinking concept
+                        }
                     }
                 }
                 Ok(gemini_parts)
@@ -167,7 +171,7 @@ impl GoogleProvider {
     }
 
     /// Convert tools to Gemini format.
-    fn convert_tools(&self, tools: &[crate::ToolDefinition]) -> Vec<GeminiTool> {
+    fn convert_tools(&self, tools: &[ToolDefinition]) -> Vec<GeminiTool> {
         vec![GeminiTool {
             function_declarations: tools
                 .iter()
@@ -180,7 +184,7 @@ impl GoogleProvider {
         }]
     }
 
-    /// Parse Gemini response.
+    /// Parse Gemini response into canonical ChatResponse.
     fn parse_response(&self, response: GeminiResponse, model: &str) -> Result<ChatResponse> {
         let candidate = response
             .candidates
@@ -188,17 +192,19 @@ impl GoogleProvider {
             .next()
             .ok_or_else(|| ProviderError::internal("No candidates in response"))?;
 
-        let mut content = String::new();
+        let mut text_parts = String::new();
         let mut tool_calls = Vec::new();
 
         for part in candidate.content.parts {
             match part {
                 GeminiPart::Text { text } => {
-                    content.push_str(&text);
+                    text_parts.push_str(&text);
                 }
                 GeminiPart::FunctionCall { function_call } => {
-                    tool_calls.push(ToolUse {
-                        id: uuid::Uuid::new_v4().to_string(),
+                    // Gemini doesn't provide tool call IDs, so we generate client-side UUIDs
+                    let id = uuid::Uuid::new_v4().to_string();
+                    tool_calls.push(ContentBlock::ToolUse {
+                        id,
                         name: function_call.name,
                         input: function_call.args,
                     });
@@ -215,19 +221,19 @@ impl GoogleProvider {
             _ => StopReason::Unknown,
         };
 
-        let usage = response.usage_metadata.unwrap_or_default();
+        let gemini_usage = response.usage_metadata.unwrap_or_default();
 
         Ok(ChatResponse {
             id: uuid::Uuid::new_v4().to_string(),
             model: model.to_string(),
-            content,
+            content: MessageContent::Text(text_parts),
             tool_calls,
             stop_reason,
-            usage: Usage {
-                input_tokens: usage.prompt_token_count,
-                output_tokens: usage.candidates_token_count,
-                cache_read_tokens: usage.cached_content_token_count.unwrap_or(0),
-                cache_creation_tokens: 0,
+            usage: TokenUsage {
+                input: gemini_usage.prompt_token_count as u64,
+                output: gemini_usage.candidates_token_count as u64,
+                cache_creation: 0,
+                cache_read: gemini_usage.cached_content_token_count.unwrap_or(0) as u64,
             },
             metadata: HashMap::new(),
         })
@@ -286,17 +292,21 @@ impl Provider for GoogleProvider {
                 let id = m.name.replace("models/", "");
                 ModelInfo {
                     id: id.clone(),
-                    name: if m.display_name.is_empty() {
+                    provider: "google".to_string(),
+                    display_name: if m.display_name.is_empty() {
                         id
                     } else {
                         m.display_name
                     },
-                    description: m.description,
+                    capabilities: ModelCapabilities {
+                        vision: true,
+                        tool_use: true,
+                        streaming: true,
+                        ..Default::default()
+                    },
                     context_window: m.input_token_limit,
-                    max_output: m.output_token_limit,
-                    input_price: 0.0,
-                    output_price: 0.0,
-                    capabilities: vec!["tools".to_string(), "vision".to_string()],
+                    max_output_tokens: m.output_token_limit,
+                    pricing: None,
                 }
             })
             .collect();
@@ -440,10 +450,20 @@ impl Provider for GoogleProvider {
                             Ok(chunk) => {
                                 if let Some(candidate) = chunk.candidates.into_iter().next() {
                                     for part in candidate.content.parts {
-                                        if let GeminiPart::Text { text } = part {
-                                            return Some(Ok(StreamEvent::ContentDelta {
-                                                delta: text,
-                                            }));
+                                        match part {
+                                            GeminiPart::Text { text } => {
+                                                return Some(Ok(StreamEvent::ContentDelta {
+                                                    delta: text,
+                                                }));
+                                            }
+                                            GeminiPart::FunctionCall { function_call } => {
+                                                let id = uuid::Uuid::new_v4().to_string();
+                                                return Some(Ok(StreamEvent::ToolUseStart {
+                                                    id,
+                                                    name: function_call.name,
+                                                }));
+                                            }
+                                            _ => {}
                                         }
                                     }
 
@@ -457,7 +477,7 @@ impl Provider for GoogleProvider {
 
                                         return Some(Ok(StreamEvent::End {
                                             stop_reason,
-                                            usage: Usage::default(),
+                                            usage: TokenUsage::default(),
                                         }));
                                     }
                                 }

@@ -235,33 +235,36 @@ impl Repl {
 
         while let Some(event) = stream.next().await {
             match event {
-                Ok(StreamEvent::Start) => {
+                Ok(StreamEvent::Start { .. }) => {
                     // Response starting
                 }
-                Ok(StreamEvent::Text(text)) => {
-                    full_response.push_str(&text);
+                Ok(StreamEvent::ContentDelta { delta }) => {
+                    full_response.push_str(&delta);
                 }
-                Ok(StreamEvent::Thinking(text)) => {
+                Ok(StreamEvent::ThinkingDelta { delta }) => {
                     if self.config.show_tool_calls {
-                        eprintln!("{} {}", console::style("thinking:").dim(), console::style(&text).dim());
+                        eprintln!("{} {}", console::style("thinking:").dim(), console::style(&delta).dim());
                     }
                 }
-                Ok(StreamEvent::ToolUse { name, .. }) => {
+                Ok(StreamEvent::ToolUseStart { name, .. }) => {
                     if self.config.show_tool_calls {
                         render::render_tool_status(&name, render::ToolStatus::Running);
                     }
                 }
-                Ok(StreamEvent::Usage(usage)) => {
+                Ok(StreamEvent::Usage { usage }) => {
                     if self.config.show_token_usage {
                         render::render_token_usage(&usage);
                     }
                 }
-                Ok(StreamEvent::Done) => {
+                Ok(StreamEvent::End { .. }) => {
                     // Stream complete
                 }
-                Ok(StreamEvent::Error(e)) => {
-                    eprintln!("{}: {}", console::style("Error").red(), e);
+                Ok(StreamEvent::Error { message }) => {
+                    eprintln!("{}: {}", console::style("Error").red(), message);
                     return;
+                }
+                Ok(StreamEvent::ToolInputDelta { .. }) => {
+                    // Tool input streaming — not displayed in REPL
                 }
                 Err(e) => {
                     eprintln!("{}: {}", console::style("Error").red(), e);
