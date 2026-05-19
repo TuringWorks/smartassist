@@ -22,8 +22,8 @@ pub mod channel;
 pub mod talk;
 
 use crate::methods::MethodRegistry;
-use smartassist_providers::Provider;
-use smartassist_agent::{ToolExecutor, ToolRegistry};
+use smartassist_agent::{CompressionConfig, ToolExecutor, ToolRegistry};
+use smartassist_providers::{CredentialPoolManager, Provider};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -477,6 +477,12 @@ pub struct HandlerContext {
 
     /// Channel manager for sending/receiving messages.
     pub channel_manager: Option<Arc<smartassist_channels::ChannelManager>>,
+
+    /// Context compression configuration for long conversations.
+    pub compression_config: Option<CompressionConfig>,
+
+    /// Credential pool manager for API key rotation.
+    pub credential_pool: Option<Arc<CredentialPoolManager>>,
 }
 
 impl Default for HandlerContext {
@@ -503,6 +509,8 @@ impl Default for HandlerContext {
             canvas_manager: None,
             talk_runtime: None,
             channel_manager: None,
+            compression_config: None,
+            credential_pool: None,
         }
     }
 }
@@ -569,6 +577,18 @@ impl HandlerContext {
     /// Set the channel manager.
     pub fn with_channel_manager(mut self, manager: Arc<smartassist_channels::ChannelManager>) -> Self {
         self.channel_manager = Some(manager);
+        self
+    }
+
+    /// Set the compression configuration.
+    pub fn with_compression_config(mut self, config: CompressionConfig) -> Self {
+        self.compression_config = Some(config);
+        self
+    }
+
+    /// Set the credential pool manager.
+    pub fn with_credential_pool(mut self, pool: Arc<CredentialPoolManager>) -> Self {
+        self.credential_pool = Some(pool);
         self
     }
 }

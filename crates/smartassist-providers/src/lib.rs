@@ -28,6 +28,9 @@
 mod error;
 mod types;
 
+pub mod classifier;
+pub mod credential_pool;
+
 #[cfg(feature = "anthropic")]
 pub mod anthropic;
 
@@ -99,6 +102,9 @@ pub use smartassist_core::types::{
 
 // Re-export provider-specific types that have no core equivalent.
 pub use types::{CompletionStream};
+
+pub use classifier::{ClassifiedError, ErrorClass, ErrorClassifier, RecommendedAction};
+pub use credential_pool::{CredentialPool, CredentialPoolManager, KeyHealth};
 
 use async_trait::async_trait;
 

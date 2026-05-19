@@ -17,6 +17,7 @@ use axum::{
 use futures::{SinkExt, StreamExt};
 use smartassist_core::config::BindMode;
 use smartassist_core::types::{AuthContext, Scope};
+use smartassist_providers::CredentialPoolManager;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -64,6 +65,9 @@ pub struct GatewayConfig {
 
     /// Whether to require authentication.
     pub require_auth: bool,
+
+    /// Credential pool manager for API key rotation.
+    pub credential_pool: Option<Arc<CredentialPoolManager>>,
 }
 
 impl Default for GatewayConfig {
@@ -75,6 +79,7 @@ impl Default for GatewayConfig {
             max_connections: 100,
             auth_token: None,
             require_auth: false,
+            credential_pool: None,
         }
     }
 }
@@ -239,7 +244,7 @@ impl Gateway {
         let gateway = Self::new(config);
 
         // Create handler context with default config
-        let context = Self::build_context(None).await;
+        let context = Self::build_context(None, &gateway.state.config).await;
 
         // Register all handlers
         crate::handlers::register_all(&gateway.state.methods, context).await;
@@ -258,7 +263,7 @@ impl Gateway {
         let gateway = Self::new(config);
 
         // Create handler context with provider
-        let context = Self::build_context(Some(provider)).await;
+        let context = Self::build_context(Some(provider), &gateway.state.config).await;
 
         // Register all handlers
         crate::handlers::register_all(&gateway.state.methods, context).await;
@@ -272,13 +277,19 @@ impl Gateway {
     /// Build the handler context with tools and optional provider.
     async fn build_context(
         provider: Option<Arc<dyn smartassist_providers::Provider>>,
+        config: &GatewayConfig,
     ) -> crate::handlers::HandlerContext {
         let tool_registry = Arc::new(smartassist_agent::ToolRegistry::with_defaults().await);
         let tool_executor = Arc::new(smartassist_agent::ToolExecutor::new(tool_registry.clone()));
 
+        // Create a credential pool manager for API key rotation
+        let credential_pool = config.credential_pool.clone()
+            .unwrap_or_else(|| Arc::new(smartassist_providers::CredentialPoolManager::new()));
+
         let mut context = crate::handlers::HandlerContext::new()
             .with_config(Arc::new(RwLock::new(serde_json::json!({}))))
-            .with_tools(tool_registry, tool_executor);
+            .with_tools(tool_registry, tool_executor)
+            .with_credential_pool(credential_pool);
 
         if let Some(provider) = provider {
             context = context.with_provider(provider);

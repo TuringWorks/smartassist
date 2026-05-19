@@ -42,6 +42,7 @@ mod time;
 mod util;
 mod validate;
 mod web;
+mod guardrail;
 
 pub use archive::{TarTool, ZipTool};
 pub use ask::{AskUserTool, ConfirmTool};
@@ -82,6 +83,7 @@ pub use time::{DateCalcTool, DateParseTool, NowTool};
 pub use util::{EchoTool, SleepTool, TempDirTool, TempFileTool};
 pub use validate::{IsEmptyTool, ValidateTool};
 pub use web::{WebFetchTool, WebSearchTool};
+pub use guardrail::{GuardrailConfig, GuardrailEngine, GuardrailAction};
 
 // Plugin adapter (bridges plugin SDK tools into the agent runtime)
 // Note: PluginToolAdapter is defined inline below, not in a submodule.

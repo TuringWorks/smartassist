@@ -6,7 +6,7 @@ use crate::methods::MethodHandler;
 use crate::Result;
 use async_trait::async_trait;
 use smartassist_core::types::{Message, Role};
-use smartassist_providers::ChatOptions;
+use smartassist_providers::{ChatOptions, ErrorClassifier};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::{debug, warn};
@@ -109,6 +109,11 @@ impl MethodHandler for ChatHandler {
 
             match provider.chat(model, &messages, Some(options)).await {
                 Ok(response) => {
+                    // Report success to credential pool
+                    if let Some(ref pool) = self.context.credential_pool {
+                        pool.report_success(provider.name()).await;
+                    }
+
                     let text = response.to_text();
 
                     // Store assistant message in session
@@ -135,6 +140,25 @@ impl MethodHandler for ChatHandler {
                 }
                 Err(e) => {
                     warn!("Provider error: {}", e);
+
+                    // Classify error and report to credential pool
+                    if let Some(ref pool) = self.context.credential_pool {
+                        let classified = ErrorClassifier::classify(&e);
+                        let provider_name = provider.name();
+                        match classified.action {
+                            smartassist_providers::RecommendedAction::RotateCredential => {
+                                pool.report_auth_failure(provider_name, classified.retry_after_secs.map(std::time::Duration::from_secs)).await;
+                                warn!("Reported auth failure for provider '{}'", provider_name);
+                            }
+                            smartassist_providers::RecommendedAction::RetryWithBackoff => {
+                                if classified.category == smartassist_providers::ErrorClass::RateLimit {
+                                    pool.report_rate_limit(provider_name, std::time::Duration::from_secs(classified.retry_after_secs.unwrap_or(60))).await;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+
                     (format!("Error: {}", e), None)
                 }
             }

@@ -10,7 +10,7 @@ use crate::Result;
 use async_trait::async_trait;
 use smartassist_agent::ToolContext;
 use smartassist_core::types::{ContentBlock, Message as CoreMessage, Role, ToolResult};
-use smartassist_providers::{ChatOptions, Message, StopReason, ToolChoice, ToolDefinition};
+use smartassist_providers::{ChatOptions, ErrorClassifier, Message, StopReason, ToolChoice, ToolDefinition};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::{debug, warn};
@@ -240,6 +240,11 @@ impl MethodHandler for AgentHandler {
                         total_input_tokens += response.usage.input;
                         total_output_tokens += response.usage.output;
 
+                        // Report success to credential pool
+                        if let Some(ref pool) = self.context.credential_pool {
+                            pool.report_success(provider.name()).await;
+                        }
+
                         if response.has_tool_calls() {
                             stop_reason = "tool_use".to_string();
 
@@ -302,6 +307,26 @@ impl MethodHandler for AgentHandler {
                     }
                     Err(e) => {
                         warn!("Provider error on turn {}: {}", turn + 1, e);
+
+                        // Classify the error and report to credential pool
+                        if let Some(ref pool) = self.context.credential_pool {
+                            let classified = ErrorClassifier::classify(&e);
+                            let provider_name = provider.name();
+                            match classified.action {
+                                smartassist_providers::RecommendedAction::RotateCredential => {
+                                    pool.report_auth_failure(provider_name, classified.retry_after_secs.map(std::time::Duration::from_secs)).await;
+                                    warn!("Reported auth failure for provider '{}', rotating credential", provider_name);
+                                }
+                                smartassist_providers::RecommendedAction::RetryWithBackoff => {
+                                    if classified.category == smartassist_providers::ErrorClass::RateLimit {
+                                        pool.report_rate_limit(provider_name, std::time::Duration::from_secs(classified.retry_after_secs.unwrap_or(60))).await;
+                                        warn!("Reported rate limit for provider '{}'", provider_name);
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+
                         final_response = format!("Error: {}", e);
                         stop_reason = "error".to_string();
                         break;

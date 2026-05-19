@@ -1,16 +1,17 @@
 //! Gateway command.
 
 use clap::Args;
+use secrecy::SecretString;
 use smartassist_core::config::{self, BindMode};
 use smartassist_gateway::{Gateway, GatewayConfig};
 use smartassist_providers::{
     anthropic::AnthropicProvider, google::GoogleProvider, openai::OpenAIProvider,
-    ollama::OllamaProvider, Provider,
+    ollama::OllamaProvider, CredentialPool, CredentialPoolManager, Provider,
 };
 use std::sync::Arc;
 use tokio::net::TcpStream;
 use tracing::{debug, info};
-use smartassist_secrets::FileSecretStore;
+use smartassist_secrets::{FileSecretStore, SecretStore};
 
 /// Gateway command arguments.
 #[derive(Args)]
@@ -80,19 +81,15 @@ pub async fn run(args: GatewayArgs) -> anyhow::Result<()> {
             // Require auth for non-loopback binds when a token is provided
             let require_auth = auth_token.is_some() && bind_mode != BindMode::Loopback;
 
-            let config = GatewayConfig {
-                bind: bind_mode,
-                port,
-                auth_token,
-                require_auth,
-                ..Default::default()
-            };
+            // Build credential pool manager for API key rotation.
+            let credential_pool = Arc::new(CredentialPoolManager::new());
 
             // Attempt to populate environment variables from secure secret store
             // so that from_env() works even if the user hasn't explicitly exported them in their shell.
+            // Also register keys in the credential pool for rotation on auth failures.
             if let Ok(store) = FileSecretStore::from_default_dir() {
                 debug!("Loaded secure secret store, injecting standard provider keys into environment...");
-                
+
                 let mapping = [
                     ("anthropic_api_key", "ANTHROPIC_API_KEY"),
                     ("openai_api_key", "OPENAI_API_KEY"),
@@ -101,12 +98,41 @@ pub async fn run(args: GatewayArgs) -> anyhow::Result<()> {
 
                 for (secret_name, env_var) in mapping.iter() {
                     if std::env::var(env_var).is_err() {
-                        if let Ok(Some(secret_val)) = store.get(secret_name).await {
-                            std::env::set_var(env_var, secret_val);
+                        if let Ok(secret_val) = store.get(secret_name).await {
+                            std::env::set_var(env_var, secret_val.expose().to_string());
                         }
                     }
                 }
             }
+
+            // Register available API keys in the credential pool for health tracking and rotation.
+            if let Ok(key) = std::env::var("ANTHROPIC_API_KEY") {
+                if !key.is_empty() {
+                    let pool = CredentialPool::single("anthropic", SecretString::new(key.into()));
+                    credential_pool.register("anthropic", pool).await;
+                }
+            }
+            if let Ok(key) = std::env::var("OPENAI_API_KEY") {
+                if !key.is_empty() {
+                    let pool = CredentialPool::single("openai", SecretString::new(key.into()));
+                    credential_pool.register("openai", pool).await;
+                }
+            }
+            if let Ok(key) = std::env::var("GOOGLE_API_KEY") {
+                if !key.is_empty() {
+                    let pool = CredentialPool::single("google", SecretString::new(key.into()));
+                    credential_pool.register("google", pool).await;
+                }
+            }
+
+            let config = GatewayConfig {
+                bind: bind_mode,
+                port,
+                auth_token,
+                require_auth,
+                credential_pool: Some(credential_pool),
+                ..Default::default()
+            };
 
             // Try to create provider from environment
             let provider_instance: Option<Arc<dyn Provider>> = match provider.as_str() {
@@ -193,7 +219,7 @@ pub async fn run(args: GatewayArgs) -> anyhow::Result<()> {
             let cfg = config::Config::load_or_default();
             let port = cfg.gateway.port;
 
-            match TcpStream::connect(format!("127.0.0.1:{}", port)) {
+            match TcpStream::connect(format!("127.0.0.1:{}", port)).await {
                 Ok(_) => {
                     // Gateway is running but we don't have a shutdown RPC wired yet.
                     // Print instructions for the user to stop manually.
@@ -212,7 +238,7 @@ pub async fn run(args: GatewayArgs) -> anyhow::Result<()> {
             let cfg = config::Config::load_or_default();
             let port = cfg.gateway.port;
 
-            match TcpStream::connect(format!("127.0.0.1:{}", port)) {
+            match TcpStream::connect(format!("127.0.0.1:{}", port)).await {
                 Ok(_) => {
                     println!("Gateway is running on port {}", port);
                 }

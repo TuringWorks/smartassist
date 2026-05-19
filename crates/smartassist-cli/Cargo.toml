@@ -28,6 +28,9 @@ clap = { version = "4.4", features = ["derive", "env"] }
 thiserror = "1.0"
 anyhow = "1.0"
 
+# Secret management
+secrecy = "0.8"
+
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

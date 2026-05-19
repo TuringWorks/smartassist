@@ -8801,6 +8801,7 @@ dependencies = [
  "rpassword",
  "rustyline",
  "rustyline-derive",
+ "secrecy",
  "serde",
  "serde_json",
  "smartassist-agent",

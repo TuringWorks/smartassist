@@ -477,8 +477,15 @@ mod tests {
 
         // Head: system(1) + 2 non-system = 3, tail: 2, summary: 1 => 6
         assert_eq!(compacted.len(), 6);
+        // compacted = [System, User(Q0), Assistant(A0), System(summary), User(Q4), Assistant(A4)]
         assert_eq!(compacted[0].role, Role::System); // original system msg
-        assert_eq!(compacted[1].role, Role::System); // summary system msg
+        assert_eq!(compacted[0].content.to_text(), "You are a helpful assistant.");
+        assert_eq!(compacted[1].role, Role::User); // Q0
+        assert_eq!(compacted[2].role, Role::Assistant); // A0
+        assert_eq!(compacted[3].role, Role::System); // summary system msg
+        assert_eq!(compacted[3].content.to_text(), "Summary of earlier conversation.");
+        assert_eq!(compacted[4].role, Role::User); // Q4
+        assert_eq!(compacted[5].role, Role::Assistant); // A4
         assert!(result.messages_removed > 0);
         assert_eq!(result.head_preserved, 3);
         assert_eq!(result.tail_preserved, 2);
@@ -487,19 +494,22 @@ mod tests {
     #[test]
     fn test_summarize_preserves_system_messages() {
         let messages = make_conversation_with_system(3); // 7 messages
-        let (compacted, result) = ContextCompactor::compact_summarize(
+        let (compacted, _result) = ContextCompactor::compact_summarize(
             &messages,
             1, // head: system + 1 non-system
             2, // tail: last 2 messages
             "Summary.",
         );
 
+        // compacted = [System, User(Q0), System(summary), User(Q2), Assistant(A2)]
         // First message should still be the system message
         assert_eq!(compacted[0].role, Role::System);
         assert_eq!(compacted[0].content.to_text(), "You are a helpful assistant.");
-        // Second should be summary
-        assert_eq!(compacted[1].role, Role::System);
-        assert!(compacted[1].content.to_text().contains("Summary"));
+        // Second should be user message from head
+        assert_eq!(compacted[1].role, Role::User);
+        // Third should be summary
+        assert_eq!(compacted[2].role, Role::System);
+        assert!(compacted[2].content.to_text().contains("Summary"));
     }
 
     #[test]
