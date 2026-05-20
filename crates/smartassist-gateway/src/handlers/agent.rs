@@ -8,7 +8,7 @@ use crate::error::GatewayError;
 use crate::methods::MethodHandler;
 use crate::Result;
 use async_trait::async_trait;
-use smartassist_agent::{CompressionEngine, ToolContext};
+use smartassist_agent::ToolContext;
 use smartassist_core::types::{ContentBlock, Message as CoreMessage, Role, ToolResult};
 use smartassist_providers::{ChatOptions, ErrorClassifier, Message, StopReason, ToolChoice, ToolDefinition};
 use serde::{Deserialize, Serialize};
@@ -226,8 +226,7 @@ impl MethodHandler for AgentHandler {
                 };
 
                 // Apply context compression if configured
-                if let Some(ref config) = self.context.compression_config {
-                    let engine = CompressionEngine::new(config.clone());
+                if let Some(ref engine) = self.context.compression_engine {
                     if engine.should_compact(&messages) {
                         debug!("Context compression triggered for session {}", session_key);
                         match engine.compact(&messages).await {

@@ -103,8 +103,7 @@ impl MethodHandler for ChatHandler {
         };
 
         // Apply context compression if configured
-        if let Some(ref config) = self.context.compression_config {
-            let engine = smartassist_agent::CompressionEngine::new(config.clone());
+        if let Some(ref engine) = self.context.compression_engine {
             if engine.should_compact(&messages) {
                 debug!("Context compression triggered for session {}", session_key);
                 match engine.compact(&messages).await {

@@ -25,6 +25,7 @@ pub enum Outcome {
 
 /// A recorded execution pattern.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct ExecutionPattern {
     /// Unique ID.
     pub id: String,

@@ -52,6 +52,7 @@ impl Default for GuardrailConfig {
 
 /// Record of a tool call for loop detection.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct ToolCallRecord {
     /// Tool name.
     tool_name: String,

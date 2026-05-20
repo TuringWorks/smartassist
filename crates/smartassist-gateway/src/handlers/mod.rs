@@ -22,7 +22,7 @@ pub mod channel;
 pub mod talk;
 
 use crate::methods::MethodRegistry;
-use smartassist_agent::{CompressionConfig, ToolExecutor, ToolRegistry};
+use smartassist_agent::{CompressionEngine, CompressionConfig, GuardrailEngine, ImprovementEngine, ToolExecutor, ToolRegistry};
 use smartassist_providers::{CredentialPoolManager, Provider};
 use std::sync::Arc;
 use std::time::Duration;
@@ -481,6 +481,15 @@ pub struct HandlerContext {
     /// Context compression configuration for long conversations.
     pub compression_config: Option<CompressionConfig>,
 
+    /// Persistent compression engine (created from compression_config).
+    pub compression_engine: Option<Arc<CompressionEngine>>,
+
+    /// Guardrail engine for tool execution safety.
+    pub guardrail_engine: Option<Arc<GuardrailEngine>>,
+
+    /// Improvement engine for self-improvement loop.
+    pub improvement_engine: Option<Arc<ImprovementEngine>>,
+
     /// Credential pool manager for API key rotation.
     pub credential_pool: Option<Arc<CredentialPoolManager>>,
 }
@@ -510,6 +519,9 @@ impl Default for HandlerContext {
             talk_runtime: None,
             channel_manager: None,
             compression_config: None,
+            compression_engine: None,
+            guardrail_engine: None,
+            improvement_engine: None,
             credential_pool: None,
         }
     }
@@ -580,9 +592,22 @@ impl HandlerContext {
         self
     }
 
-    /// Set the compression configuration.
+    /// Set the compression configuration and create a persistent engine.
     pub fn with_compression_config(mut self, config: CompressionConfig) -> Self {
+        self.compression_engine = Some(Arc::new(CompressionEngine::new(config.clone())));
         self.compression_config = Some(config);
+        self
+    }
+
+    /// Set the guardrail engine.
+    pub fn with_guardrail_engine(mut self, engine: Arc<GuardrailEngine>) -> Self {
+        self.guardrail_engine = Some(engine);
+        self
+    }
+
+    /// Set the improvement engine.
+    pub fn with_improvement_engine(mut self, engine: Arc<ImprovementEngine>) -> Self {
+        self.improvement_engine = Some(engine);
         self
     }
 
