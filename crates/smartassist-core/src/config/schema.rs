@@ -43,6 +43,10 @@ pub struct Config {
     /// Routing bindings.
     #[serde(default)]
     pub routing: RoutingConfig,
+
+    /// Learnings settings.
+    #[serde(default)]
+    pub learnings: LearningsConfig,
 }
 
 /// Agents configuration section.
@@ -551,6 +555,50 @@ impl Default for MemorySearchConfig {
     }
 }
 
+/// Learnings configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LearningsConfig {
+    /// Enable the learnings system.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// Automatically extract learnings from conversations.
+    #[serde(default)]
+    pub auto_extract: bool,
+
+    /// Use LLM for summarization when extracting learnings.
+    #[serde(default)]
+    pub use_llm_summarization: bool,
+
+    /// Maximum entries per learning file before splitting.
+    #[serde(default = "default_max_entries_per_file")]
+    pub max_entries_per_file: usize,
+
+    /// Maximum learning entries to inject into agent context.
+    #[serde(default = "default_max_context_entries")]
+    pub max_context_entries: usize,
+}
+
+fn default_max_entries_per_file() -> usize {
+    100
+}
+
+fn default_max_context_entries() -> usize {
+    10
+}
+
+impl Default for LearningsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            auto_extract: false,
+            use_llm_summarization: false,
+            max_entries_per_file: default_max_entries_per_file(),
+            max_context_entries: default_max_context_entries(),
+        }
+    }
+}
+
 /// Logging configuration.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct LoggingConfig {
@@ -753,5 +801,26 @@ mod tests {
             let parsed: LogLevel = serde_json::from_str(&json).unwrap();
             assert_eq!(*level, parsed);
         }
+    }
+
+    #[test]
+    fn test_learnings_config_default() {
+        let config = LearningsConfig::default();
+        assert!(config.enabled);
+        assert!(!config.auto_extract);
+        assert!(!config.use_llm_summarization);
+        assert_eq!(config.max_entries_per_file, 100);
+        assert_eq!(config.max_context_entries, 10);
+    }
+
+    #[test]
+    fn test_learnings_config_serde_roundtrip() {
+        let config = LearningsConfig::default();
+        let json = serde_json::to_string_pretty(&config).unwrap();
+        let parsed: LearningsConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.enabled, config.enabled);
+        assert_eq!(parsed.auto_extract, config.auto_extract);
+        assert_eq!(parsed.max_entries_per_file, config.max_entries_per_file);
+        assert_eq!(parsed.max_context_entries, config.max_context_entries);
     }
 }

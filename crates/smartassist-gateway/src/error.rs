@@ -48,6 +48,16 @@ pub enum GatewayError {
     /// Internal error.
     #[error("Internal error: {0}")]
     Internal(String),
+
+    /// Learnings error.
+    #[error("Learnings error: {0}")]
+    Learnings(String),
+}
+
+impl From<smartassist_learnings::LearningsError> for GatewayError {
+    fn from(err: smartassist_learnings::LearningsError) -> Self {
+        GatewayError::Learnings(err.to_string())
+    }
 }
 
 impl GatewayError {

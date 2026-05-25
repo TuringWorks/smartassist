@@ -18,6 +18,7 @@ members = [
     "crates/smartassist-talk",
     "crates/smartassist-mcp",
     "crates/smartassist-security",
+    "crates/smartassist-learnings",
     "examples/hello-plugin",
     "tests/integration",
     "tests/bdd",
@@ -109,6 +110,7 @@ smartassist-transcription = { path = "crates/smartassist-transcription" }
 smartassist-talk = { path = "crates/smartassist-talk" }
 smartassist-mcp = { path = "crates/smartassist-mcp" }
 smartassist-security = { path = "crates/smartassist-security" }
+smartassist-learnings = { path = "crates/smartassist-learnings" }
 
 [profile.release]
 lto = "thin"

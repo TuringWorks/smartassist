@@ -68,6 +68,18 @@ pub struct GatewayConfig {
 
     /// Credential pool manager for API key rotation.
     pub credential_pool: Option<Arc<CredentialPoolManager>>,
+
+    /// Context compression configuration (enables compression when set).
+    pub compression_config: Option<smartassist_agent::CompressionConfig>,
+
+    /// Enable guardrails for tool execution safety.
+    pub enable_guardrails: bool,
+
+    /// Enable self-improvement engine.
+    pub enable_improvement: bool,
+
+    /// Enable learnings system.
+    pub enable_learnings: bool,
 }
 
 impl Default for GatewayConfig {
@@ -80,6 +92,10 @@ impl Default for GatewayConfig {
             auth_token: None,
             require_auth: false,
             credential_pool: None,
+            compression_config: None,
+            enable_guardrails: true,
+            enable_improvement: true,
+            enable_learnings: true,
         }
     }
 }
@@ -290,6 +306,49 @@ impl Gateway {
             .with_config(Arc::new(RwLock::new(serde_json::json!({}))))
             .with_tools(tool_registry, tool_executor)
             .with_credential_pool(credential_pool);
+
+        // Conditionally enable guardrails
+        if config.enable_guardrails {
+            let guardrail = Arc::new(smartassist_agent::GuardrailEngine::with_defaults(
+                context.tool_executor.clone().unwrap_or_else(|| Arc::new(smartassist_agent::ToolExecutor::new(
+                    Arc::new(smartassist_agent::ToolRegistry::new())
+                )))
+            ));
+            context = context.with_guardrail_engine(guardrail);
+            info!("Guardrails enabled");
+        }
+
+        // Conditionally enable self-improvement engine
+        if config.enable_improvement {
+            let improvement = Arc::new(smartassist_agent::ImprovementEngine::new());
+            context = context.with_improvement_engine(improvement);
+            info!("Self-improvement engine enabled");
+        }
+
+        // Conditionally enable context compression
+        if let Some(ref compression_config) = config.compression_config {
+            context = context.with_compression_config(compression_config.clone());
+            info!("Context compression enabled (threshold: {:.0}%)", compression_config.compaction_threshold * 100.0);
+        }
+
+        // Conditionally enable learnings system
+        if config.enable_learnings {
+            match smartassist_learnings::LearningStore::new() {
+                Ok(store) => {
+                    let store = Arc::new(store);
+                    let context_provider = Arc::new(
+                        smartassist_learnings::LearningContextProvider::new(store.clone(), 10)
+                    );
+                    context = context
+                        .with_learning_store(store)
+                        .with_learning_context(context_provider);
+                    info!("Learnings system enabled");
+                }
+                Err(e) => {
+                    warn!("Failed to initialize learnings system: {}", e);
+                }
+            }
+        }
 
         if let Some(provider) = provider {
             context = context.with_provider(provider);

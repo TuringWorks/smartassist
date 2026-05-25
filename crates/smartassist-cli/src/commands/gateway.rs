@@ -2,6 +2,7 @@
 
 use clap::Args;
 use secrecy::SecretString;
+use smartassist_agent::CompressionConfig;
 use smartassist_core::config::{self, BindMode};
 use smartassist_gateway::{Gateway, GatewayConfig};
 use smartassist_providers::{
@@ -48,6 +49,26 @@ pub enum GatewayCommand {
         /// Authentication token for non-loopback connections (CVE-2026-25253 mitigation)
         #[arg(long, env = "SMARTASSIST_AUTH_TOKEN")]
         auth_token: Option<String>,
+
+        /// Enable context compression for long conversations
+        #[arg(long, env = "SMARTASSIST_ENABLE_COMPRESSION")]
+        enable_compression: bool,
+
+        /// Compression threshold (0.0-1.0, fraction of context window before compression)
+        #[arg(long, default_value = "0.8")]
+        compression_threshold: f64,
+
+        /// Enable guardrails for tool execution safety
+        #[arg(long, env = "SMARTASSIST_ENABLE_GUARDRAILS")]
+        enable_guardrails: bool,
+
+        /// Enable self-improvement engine
+        #[arg(long, env = "SMARTASSIST_ENABLE_IMPROVEMENT")]
+        enable_improvement: bool,
+
+        /// Enable learnings system (markdown knowledge store)
+        #[arg(long, env = "SMARTASSIST_ENABLE_LEARNINGS")]
+        enable_learnings: bool,
     },
 
     /// Stop the gateway server
@@ -67,6 +88,11 @@ pub async fn run(args: GatewayArgs) -> anyhow::Result<()> {
             provider,
             model,
             auth_token,
+            enable_compression,
+            compression_threshold,
+            enable_guardrails,
+            enable_improvement,
+            enable_learnings,
         } => {
             let bind_mode = match bind.as_str() {
                 "loopback" => BindMode::Loopback,
@@ -131,8 +157,32 @@ pub async fn run(args: GatewayArgs) -> anyhow::Result<()> {
                 auth_token,
                 require_auth,
                 credential_pool: Some(credential_pool),
+                compression_config: if enable_compression {
+                    Some(CompressionConfig {
+                        compaction_threshold: compression_threshold,
+                        ..Default::default()
+                    })
+                } else {
+                    None
+                },
+                enable_guardrails,
+                enable_improvement,
+                enable_learnings,
                 ..Default::default()
             };
+
+            if enable_compression {
+                info!("Context compression enabled (threshold: {:.0}%)", compression_threshold * 100.0);
+            }
+            if enable_guardrails {
+                info!("Guardrails enabled");
+            }
+            if enable_improvement {
+                info!("Self-improvement engine enabled");
+            }
+            if enable_learnings {
+                info!("Learnings system enabled");
+            }
 
             // Try to create provider from environment
             let provider_instance: Option<Arc<dyn Provider>> = match provider.as_str() {

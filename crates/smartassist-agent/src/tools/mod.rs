@@ -43,6 +43,7 @@ mod util;
 mod validate;
 mod web;
 mod guardrail;
+mod learning;
 
 pub use archive::{TarTool, ZipTool};
 pub use ask::{AskUserTool, ConfirmTool};
@@ -84,6 +85,7 @@ pub use util::{EchoTool, SleepTool, TempDirTool, TempFileTool};
 pub use validate::{IsEmptyTool, ValidateTool};
 pub use web::{WebFetchTool, WebSearchTool};
 pub use guardrail::{GuardrailConfig, GuardrailEngine, GuardrailAction};
+pub use learning::{LearningIngestTool, LearningListTool, LearningSearchTool};
 
 // Plugin adapter (bridges plugin SDK tools into the agent runtime)
 // Note: PluginToolAdapter is defined inline below, not in a submodule.
@@ -271,6 +273,11 @@ impl ToolRegistry {
         registry.register(Arc::new(MemoryGetTool::new())).await;
         registry.register(Arc::new(MemoryStoreTool::new())).await;
         registry.register(Arc::new(MemoryIndexTool::new())).await;
+
+        // Learning tools
+        registry.register(Arc::new(LearningIngestTool::new())).await;
+        registry.register(Arc::new(LearningSearchTool::new())).await;
+        registry.register(Arc::new(LearningListTool::new())).await;
 
         // Automation tools
         registry.register(Arc::new(CronTool::new())).await;
@@ -817,7 +824,12 @@ mod tests {
         assert!(tools.contains(&"match".to_string()));
         assert!(tools.contains(&"version_compare".to_string()));
 
-        // Total: 104 tools
-        assert_eq!(tools.len(), 104);
+        // Check learning tools
+        assert!(tools.contains(&"learning_ingest".to_string()));
+        assert!(tools.contains(&"learning_search".to_string()));
+        assert!(tools.contains(&"learning_list".to_string()));
+
+        // Total: 107 tools
+        assert_eq!(tools.len(), 107);
     }
 }

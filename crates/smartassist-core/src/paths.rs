@@ -51,6 +51,11 @@ pub fn plugins_dir() -> Result<PathBuf, ConfigError> {
     Ok(base_dir()?.join("plugins"))
 }
 
+/// Get the learnings directory (~/.smartassist/md).
+pub fn learnings_dir() -> Result<PathBuf, ConfigError> {
+    Ok(base_dir()?.join("md"))
+}
+
 /// Get an agent's directory (~/.smartassist/agents/{agent_id}).
 pub fn agent_dir(agent_id: &str) -> Result<PathBuf, ConfigError> {
     Ok(agents_dir()?.join(agent_id))
@@ -75,6 +80,7 @@ pub fn ensure_dirs() -> Result<(), ConfigError> {
         audit_dir()?,
         credentials_dir()?,
         plugins_dir()?,
+        learnings_dir()?,
     ];
 
     for dir in dirs {
@@ -131,5 +137,11 @@ mod tests {
 
         let workspace = agent_workspace(agent_id).unwrap();
         assert!(workspace.to_string_lossy().contains("workspace-test_agent"));
+    }
+
+    #[test]
+    fn test_learnings_dir() {
+        let dir = learnings_dir().unwrap();
+        assert!(dir.to_string_lossy().ends_with("md"));
     }
 }

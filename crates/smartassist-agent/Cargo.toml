@@ -13,6 +13,7 @@ smartassist-channels = { path = "../smartassist-channels" }
 smartassist-memory = { path = "../smartassist-memory" }
 smartassist-plugin-sdk = { path = "../smartassist-plugin-sdk" }
 smartassist-providers = { path = "../smartassist-providers" }
+smartassist-learnings = { path = "../smartassist-learnings" }
 
 # Async runtime
 tokio = { version = "1.35", features = ["full", "sync", "time"] }

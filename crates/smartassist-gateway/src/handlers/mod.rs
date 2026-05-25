@@ -20,9 +20,11 @@ pub mod browser;
 pub mod canvas;
 pub mod channel;
 pub mod talk;
+pub mod learnings;
 
 use crate::methods::MethodRegistry;
 use smartassist_agent::{CompressionEngine, CompressionConfig, GuardrailEngine, ImprovementEngine, ToolExecutor, ToolRegistry};
+use smartassist_learnings::{LearningContextProvider, LearningStore};
 use smartassist_providers::{CredentialPoolManager, Provider};
 use std::sync::Arc;
 use std::time::Duration;
@@ -67,6 +69,10 @@ pub use channel::{ChannelListHandler, ChannelHealthHandler};
 pub use talk::{
     TalkAudioHandler, TalkListHandler, TalkPttPressHandler, TalkPttReleaseHandler,
     TalkStartHandler, TalkStatusHandler, TalkStopHandler,
+};
+pub use learnings::{
+    LearningsDeleteHandler, LearningsGetHandler, LearningsIngestHandler,
+    LearningsListHandler, LearningsSearchHandler,
 };
 
 /// Register all built-in method handlers.
@@ -363,6 +369,23 @@ pub async fn register_all(registry: &MethodRegistry, context: HandlerContext) {
     registry
         .register("talk.audio", Arc::new(TalkAudioHandler::new(ctx.clone())))
         .await;
+
+    // Learnings methods
+    registry
+        .register("learnings.list", Arc::new(LearningsListHandler::new(ctx.clone())))
+        .await;
+    registry
+        .register("learnings.get", Arc::new(LearningsGetHandler::new(ctx.clone())))
+        .await;
+    registry
+        .register("learnings.ingest", Arc::new(LearningsIngestHandler::new(ctx.clone())))
+        .await;
+    registry
+        .register("learnings.search", Arc::new(LearningsSearchHandler::new(ctx.clone())))
+        .await;
+    registry
+        .register("learnings.delete", Arc::new(LearningsDeleteHandler::new(ctx.clone())))
+        .await;
 }
 
 /// Simplified session data for handlers.
@@ -492,6 +515,12 @@ pub struct HandlerContext {
 
     /// Credential pool manager for API key rotation.
     pub credential_pool: Option<Arc<CredentialPoolManager>>,
+
+    /// Learning store for knowledge persistence.
+    pub learning_store: Option<Arc<LearningStore>>,
+
+    /// Learning context provider for injecting learnings into conversations.
+    pub learning_context: Option<Arc<LearningContextProvider>>,
 }
 
 impl Default for HandlerContext {
@@ -523,6 +552,8 @@ impl Default for HandlerContext {
             guardrail_engine: None,
             improvement_engine: None,
             credential_pool: None,
+            learning_store: None,
+            learning_context: None,
         }
     }
 }
@@ -615,5 +646,75 @@ impl HandlerContext {
     pub fn with_credential_pool(mut self, pool: Arc<CredentialPoolManager>) -> Self {
         self.credential_pool = Some(pool);
         self
+    }
+
+    /// Set the learning store.
+    pub fn with_learning_store(mut self, store: Arc<LearningStore>) -> Self {
+        self.learning_store = Some(store);
+        self
+    }
+
+    /// Set the learning context provider.
+    pub fn with_learning_context(mut self, provider: Arc<LearningContextProvider>) -> Self {
+        self.learning_context = Some(provider);
+        self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_handler_context_default() {
+        let ctx = HandlerContext::new();
+        assert!(ctx.provider.is_none());
+        assert!(ctx.compression_config.is_none());
+        assert!(ctx.compression_engine.is_none());
+        assert!(ctx.guardrail_engine.is_none());
+        assert!(ctx.improvement_engine.is_none());
+        assert!(ctx.credential_pool.is_none());
+        assert!(ctx.learning_store.is_none());
+        assert!(ctx.learning_context.is_none());
+        assert_eq!(ctx.default_model, "claude-sonnet-4-20250514");
+    }
+
+    #[test]
+    fn test_handler_context_with_credential_pool() {
+        let pool = Arc::new(CredentialPoolManager::new());
+        let ctx = HandlerContext::new().with_credential_pool(pool);
+        assert!(ctx.credential_pool.is_some());
+    }
+
+    #[test]
+    fn test_handler_context_with_compression_config() {
+        let config = CompressionConfig::default();
+        let ctx = HandlerContext::new().with_compression_config(config);
+        assert!(ctx.compression_config.is_some());
+        assert!(ctx.compression_engine.is_some());
+    }
+
+    #[test]
+    fn test_handler_context_with_guardrail() {
+        let registry = Arc::new(ToolRegistry::new());
+        let executor = Arc::new(ToolExecutor::new(registry));
+        let guardrail = Arc::new(GuardrailEngine::with_defaults(executor));
+        let ctx = HandlerContext::new().with_guardrail_engine(guardrail);
+        assert!(ctx.guardrail_engine.is_some());
+    }
+
+    #[test]
+    fn test_handler_context_with_improvement() {
+        let improvement = Arc::new(ImprovementEngine::new());
+        let ctx = HandlerContext::new().with_improvement_engine(improvement);
+        assert!(ctx.improvement_engine.is_some());
+    }
+
+    #[test]
+    fn test_handler_context_with_learning_store() {
+        let dir = std::env::temp_dir().join("smartassist_test_learning_store");
+        let store = Arc::new(LearningStore::with_dir(dir).unwrap());
+        let ctx = HandlerContext::new().with_learning_store(store);
+        assert!(ctx.learning_store.is_some());
     }
 }

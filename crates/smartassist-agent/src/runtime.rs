@@ -434,4 +434,39 @@ mod tests {
         assert_eq!(config.max_turns, 10);
         assert!(config.enable_tools);
     }
+
+    #[test]
+    fn test_compression_config_default() {
+        let config = CompressionConfig::default();
+        assert_eq!(config.context_limit, 100_000);
+        assert!((config.compaction_threshold - 0.8).abs() < 0.001);
+        assert_eq!(config.head_messages, 2);
+        assert_eq!(config.tail_messages, 10);
+    }
+
+    #[tokio::test]
+    async fn test_guardrail_engine_creation() {
+        let registry = Arc::new(ToolRegistry::new());
+        let executor = Arc::new(ToolExecutor::new(registry));
+        let _guardrail = GuardrailEngine::with_defaults(executor);
+        // Engine created successfully
+    }
+
+    #[tokio::test]
+    async fn test_improvement_engine_recording() {
+        let engine = ImprovementEngine::new();
+        assert_eq!(engine.history_count().await, 0);
+        engine.record_success("read", "/tmp/test.txt").await;
+        assert_eq!(engine.history_count().await, 1);
+    }
+
+    #[tokio::test]
+    async fn test_guardrail_check_allows_normal_call() {
+        let registry = Arc::new(ToolRegistry::new());
+        let executor = Arc::new(ToolExecutor::new(registry));
+        let guardrail = GuardrailEngine::with_defaults(executor);
+
+        let action = guardrail.check("session-1", "read", &serde_json::json!({"path": "/tmp/test"})).await;
+        assert!(matches!(action, GuardrailAction::Allow));
+    }
 }

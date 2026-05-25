@@ -9,6 +9,7 @@ license = "MIT"
 smartassist-core = { path = "../smartassist-core" }
 smartassist-agent = { path = "../smartassist-agent" }
 smartassist-channels = { path = "../smartassist-channels" }
+smartassist-learnings = { path = "../smartassist-learnings" }
 smartassist-providers = { path = "../smartassist-providers", features = ["anthropic", "openai", "google"] }
 smartassist-browser = { path = "../smartassist-browser", features = ["chromiumoxide"] }
 smartassist-canvas = { path = "../smartassist-canvas" }

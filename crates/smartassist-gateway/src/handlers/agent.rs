@@ -130,7 +130,7 @@ impl AgentHandler {
         }
     }
 
-    /// Execute a tool and return the result.
+    /// Execute a tool and return the result, with guardrail protection and outcome recording.
     async fn execute_tool(
         &self,
         id: &str,
@@ -153,12 +153,31 @@ impl AgentHandler {
 
         debug!("Executing tool '{}' for session {}", name, session_key);
 
-        let result: ToolResult = executor
-            .execute(id, name, input.clone(), Some(&tool_context))
-            .await
-            .map_err(|e| GatewayError::Internal(format!("Tool execution failed: {}", e)))?;
+        // Route through guardrail engine if configured
+        let result: ToolResult = if let Some(ref guardrail) = self.context.guardrail_engine {
+            guardrail
+                .execute_guarded(id, name, input.clone(), &tool_context)
+                .await
+                .map_err(|e| GatewayError::Internal(format!("Tool execution failed: {}", e)))?
+        } else {
+            executor
+                .execute(id, name, input.clone(), Some(&tool_context))
+                .await
+                .map_err(|e| GatewayError::Internal(format!("Tool execution failed: {}", e)))?
+        };
 
         let success = !result.is_error;
+
+        // Record outcome in improvement engine if configured
+        if let Some(ref improvement) = self.context.improvement_engine {
+            if result.is_error {
+                improvement
+                    .record_failure(name, &input.to_string(), &result.output.to_string())
+                    .await;
+            } else {
+                improvement.record_success(name, &input.to_string()).await;
+            }
+        }
 
         Ok(ToolCallInfo {
             id: id.to_string(),
