@@ -39,7 +39,7 @@ class GatewayClient {
                     "jsonrpc" to JsonPrimitive("2.0"),
                     "id" to JsonPrimitive(System.currentTimeMillis().toString()),
                     "method" to JsonPrimitive(method),
-                    "params" to JsonObject(params ?: emptyMap())
+                    "params" to JsonObject((params ?: emptyMap()).mapValues { JsonPrimitive(it.value) })
                 )
             )
 

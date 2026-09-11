@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import com.smartassist.data.ChatMessage
 import com.smartassist.network.GatewayClient
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.jsonObject
 
 @Composable
 fun ChatScreen(modifier: Modifier = Modifier) {

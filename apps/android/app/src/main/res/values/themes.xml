@@ -1,0 +1,8 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!--
+      App UI is rendered entirely in Jetpack Compose (see MainActivity/MainScreen),
+      which applies its own MaterialTheme. This XML theme only covers the window
+      background shown before Compose takes over.
+    -->
+    <style name="Theme.SmartAssist" parent="android:Theme.Material.NoActionBar" />
+</resources>
