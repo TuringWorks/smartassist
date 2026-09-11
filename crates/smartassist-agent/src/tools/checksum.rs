@@ -10,6 +10,39 @@ use sha2::{Digest, Sha256};
 use std::path::Path;
 use std::time::Instant;
 
+/// Compute a hex-encoded hash of `data` using `algorithm`.
+///
+/// Supports `md5`, `sha1`, `sha256`, and `sha512` (case-insensitive).
+/// Shared by [`FileChecksumTool`], [`FileVerifyTool`], and
+/// `tools::encoding::HashTool` — this dispatch used to be duplicated
+/// verbatim in all three call sites.
+pub(crate) fn compute_hash(algorithm: &str, data: &[u8]) -> std::result::Result<String, String> {
+    match algorithm.to_lowercase().as_str() {
+        "md5" => Ok(hex::encode(md5::compute(data).0)),
+        "sha1" => {
+            use sha1::Digest as Sha1Digest;
+            let mut hasher = sha1::Sha1::new();
+            hasher.update(data);
+            Ok(hex::encode(hasher.finalize()))
+        }
+        "sha256" => {
+            let mut hasher = Sha256::new();
+            hasher.update(data);
+            Ok(hex::encode(hasher.finalize()))
+        }
+        "sha512" => {
+            use sha2::Sha512;
+            let mut hasher = Sha512::new();
+            hasher.update(data);
+            Ok(hex::encode(hasher.finalize()))
+        }
+        other => Err(format!(
+            "Unknown algorithm: {}. Use md5, sha1, sha256, or sha512",
+            other
+        )),
+    }
+}
+
 /// Tool for computing file checksums.
 pub struct FileChecksumTool;
 
@@ -94,34 +127,9 @@ impl Tool for FileChecksumTool {
             .await
             .map_err(|e| crate::error::AgentError::tool_execution(format!("Failed to read file: {}", e)))?;
 
-        let hash = match algorithm.to_lowercase().as_str() {
-            "md5" => {
-                let digest = md5::compute(&content);
-                hex::encode(digest.0)
-            }
-            "sha1" => {
-                use sha1::Digest as Sha1Digest;
-                let mut hasher = sha1::Sha1::new();
-                hasher.update(&content);
-                hex::encode(hasher.finalize())
-            }
-            "sha256" => {
-                let mut hasher = Sha256::new();
-                hasher.update(&content);
-                hex::encode(hasher.finalize())
-            }
-            "sha512" => {
-                use sha2::Sha512;
-                let mut hasher = Sha512::new();
-                hasher.update(&content);
-                hex::encode(hasher.finalize())
-            }
-            _ => {
-                return Ok(ToolResult::error(
-                    tool_use_id,
-                    format!("Unknown algorithm: {}. Use md5, sha1, sha256, or sha512", algorithm),
-                ));
-            }
+        let hash = match compute_hash(&algorithm, &content) {
+            Ok(hash) => hash,
+            Err(e) => return Ok(ToolResult::error(tool_use_id, e)),
         };
 
         let size = content.len();
@@ -228,34 +236,9 @@ impl Tool for FileVerifyTool {
             .await
             .map_err(|e| crate::error::AgentError::tool_execution(format!("Failed to read file: {}", e)))?;
 
-        let actual_hash = match algorithm.to_lowercase().as_str() {
-            "md5" => {
-                let digest = md5::compute(&content);
-                hex::encode(digest.0)
-            }
-            "sha1" => {
-                use sha1::Digest as Sha1Digest;
-                let mut hasher = sha1::Sha1::new();
-                hasher.update(&content);
-                hex::encode(hasher.finalize())
-            }
-            "sha256" => {
-                let mut hasher = Sha256::new();
-                hasher.update(&content);
-                hex::encode(hasher.finalize())
-            }
-            "sha512" => {
-                use sha2::Sha512;
-                let mut hasher = Sha512::new();
-                hasher.update(&content);
-                hex::encode(hasher.finalize())
-            }
-            _ => {
-                return Ok(ToolResult::error(
-                    tool_use_id,
-                    format!("Unknown algorithm: {}. Use md5, sha1, sha256, or sha512", algorithm),
-                ));
-            }
+        let actual_hash = match compute_hash(&algorithm, &content) {
+            Ok(hash) => hash,
+            Err(e) => return Ok(ToolResult::error(tool_use_id, e)),
         };
 
         let expected = args.expected.to_lowercase();

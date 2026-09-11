@@ -315,9 +315,6 @@ impl Tool for HashTool {
         args: serde_json::Value,
         ctx: &ToolContext,
     ) -> Result<ToolResult> {
-        use sha2::{Sha256, Sha512, Digest};
-        use sha1::Sha1;
-
         let start = Instant::now();
 
         let algorithm = args
@@ -345,32 +342,9 @@ impl Tool for HashTool {
             ));
         };
 
-        let hash = match algorithm {
-            "md5" => {
-                let digest = md5::compute(&content);
-                hex::encode(digest.0)
-            }
-            "sha1" => {
-                let mut hasher = Sha1::new();
-                hasher.update(&content);
-                hex::encode(hasher.finalize())
-            }
-            "sha256" => {
-                let mut hasher = Sha256::new();
-                hasher.update(&content);
-                hex::encode(hasher.finalize())
-            }
-            "sha512" => {
-                let mut hasher = Sha512::new();
-                hasher.update(&content);
-                hex::encode(hasher.finalize())
-            }
-            _ => {
-                return Ok(ToolResult::error(
-                    tool_use_id,
-                    format!("Unknown algorithm: {}", algorithm),
-                ));
-            }
+        let hash = match crate::tools::checksum::compute_hash(algorithm, &content) {
+            Ok(hash) => hash,
+            Err(e) => return Ok(ToolResult::error(tool_use_id, e)),
         };
 
         let duration = start.elapsed();
