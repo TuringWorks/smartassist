@@ -23,10 +23,10 @@ impl ConfigSymlinkAuditor {
 
     /// Scan for symlinks pointing outside the config directory.
     fn scan_external_symlinks(&self, report: &mut AuditReport) {
-        let canonical_base = match std::fs::canonicalize(&self.config_dir) {
-            Ok(p) => p,
-            Err(_) => return,
-        };
+        if std::fs::canonicalize(&self.config_dir).is_err() {
+            // Nothing to audit against if the base itself doesn't resolve.
+            return;
+        }
 
         for entry in WalkDir::new(&self.config_dir)
             .follow_links(false)
@@ -43,7 +43,10 @@ impl ConfigSymlinkAuditor {
                     };
 
                     if let Ok(canonical_target) = std::fs::canonicalize(&combined) {
-                        if !canonical_target.starts_with(&canonical_base) {
+                        if !smartassist_core::paths::is_within_workspace(
+                            &combined,
+                            &self.config_dir,
+                        ) {
                             report.add(
                                 AuditFinding::new(
                                     "CFG-001",
