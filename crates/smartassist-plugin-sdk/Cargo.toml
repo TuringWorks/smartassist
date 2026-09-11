@@ -15,7 +15,7 @@ tokio = { version = "1.35", features = ["sync"] }
 async-trait = "0.1"
 
 # Error handling
-thiserror = "1.0"
+thiserror = "2.0"
 anyhow = "1.0"
 
 # Logging
@@ -32,13 +32,13 @@ semver = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 
 # Platform directories
-dirs = "5.0"
+dirs = "7.0"
 
 # Dynamic library loading
-libloading = "0.8"
+libloading = "0.9"
 
 # HTTP client for marketplace
-reqwest = { version = "0.11", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "webpki-roots"] }
 urlencoding = "2.1"
 
 [dev-dependencies]

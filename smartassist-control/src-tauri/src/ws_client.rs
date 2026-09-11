@@ -85,10 +85,7 @@ impl WsClient {
         Ok(())
     }
 
-    async fn read_loop(
-        inner: Arc<Inner>,
-        mut read: futures::stream::SplitStream<WsStream>,
-    ) {
+    async fn read_loop(inner: Arc<Inner>, mut read: futures::stream::SplitStream<WsStream>) {
         while let Some(msg) = read.next().await {
             match msg {
                 Ok(Message::Text(text)) => {
@@ -125,11 +122,7 @@ impl WsClient {
     }
 
     /// Make a JSON-RPC call and wait for the response.
-    pub async fn call(
-        &self,
-        method: &str,
-        params: Option<Value>,
-    ) -> Result<Value, String> {
+    pub async fn call(&self, method: &str, params: Option<Value>) -> Result<Value, String> {
         let id = uuid::Uuid::new_v4().to_string();
         let request = JsonRpcRequest {
             jsonrpc: "2.0",
@@ -138,8 +131,8 @@ impl WsClient {
             id: id.clone(),
         };
 
-        let msg = serde_json::to_string(&request)
-            .map_err(|e| format!("Serialization error: {}", e))?;
+        let msg =
+            serde_json::to_string(&request).map_err(|e| format!("Serialization error: {}", e))?;
 
         let (tx, rx) = oneshot::channel();
 
@@ -151,7 +144,7 @@ impl WsClient {
             let mut write_guard = self.inner.write.lock().await;
             match write_guard.as_mut() {
                 Some(write) => {
-                    if let Err(e) = write.send(Message::Text(msg)).await {
+                    if let Err(e) = write.send(Message::Text(msg.into())).await {
                         self.inner.pending.lock().await.remove(&id);
                         return Err(format!("Failed to send: {}", e));
                     }

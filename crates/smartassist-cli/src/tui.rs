@@ -3,12 +3,17 @@
 //! Provides a rich chat interface using `ratatui` with message history,
 //! input field, and streaming response display.
 
+use futures::StreamExt;
 use smartassist_agent::providers::StreamEvent;
 use smartassist_agent::runtime::AgentRuntime;
 use smartassist_core::types::SessionKey;
 use std::sync::Arc;
-use futures::StreamExt;
 
+use crossterm::{
+    event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    ExecutableCommand,
+};
 use ratatui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
@@ -16,11 +21,6 @@ use ratatui::{
     text::{Line, Span, Text},
     widgets::{Block, Borders, Paragraph, Wrap},
     Frame, Terminal,
-};
-use crossterm::{
-    event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-    ExecutableCommand,
 };
 use std::io::stdout;
 use tokio::sync::mpsc;
@@ -98,7 +98,11 @@ impl TuiApp {
     fn enter_char(&mut self, c: char) {
         let pos = self.cursor_position;
         let mut input = self.input.clone();
-        let byte_pos = input.grapheme_indices(true).nth(pos).map(|(i, _)| i).unwrap_or(input.len());
+        let byte_pos = input
+            .grapheme_indices(true)
+            .nth(pos)
+            .map(|(i, _)| i)
+            .unwrap_or(input.len());
         input.insert(byte_pos, c);
         self.input = input;
         self.move_cursor_right();
@@ -120,10 +124,7 @@ impl TuiApp {
 }
 
 /// Run the TUI chat interface.
-pub async fn run_tui(
-    runtime: Arc<AgentRuntime>,
-    session_key: SessionKey,
-) -> anyhow::Result<()> {
+pub async fn run_tui(runtime: Arc<AgentRuntime>, session_key: SessionKey) -> anyhow::Result<()> {
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout());
@@ -135,21 +136,19 @@ pub async fn run_tui(
     let (event_tx, mut event_rx) = mpsc::channel::<crossterm::event::KeyEvent>(100);
 
     // Spawn blocking crossterm event reader
-    let _event_handle = tokio::task::spawn_blocking(move || {
-        loop {
-            match event::poll(std::time::Duration::from_millis(50)) {
-                Ok(true) => {
-                    if let Ok(Event::Key(key)) = event::read() {
-                        if key.kind != KeyEventKind::Release {
-                            if event_tx.blocking_send(key).is_err() {
-                                break;
-                            }
+    let _event_handle = tokio::task::spawn_blocking(move || loop {
+        match event::poll(std::time::Duration::from_millis(50)) {
+            Ok(true) => {
+                if let Ok(Event::Key(key)) = event::read() {
+                    if key.kind != KeyEventKind::Release {
+                        if event_tx.blocking_send(key).is_err() {
+                            break;
                         }
                     }
                 }
-                Ok(false) => continue,
-                Err(_) => break,
             }
+            Ok(false) => continue,
+            Err(_) => break,
         }
     });
 
@@ -282,7 +281,10 @@ async fn handle_key_event(
                         return ControlFlow::Continue;
                     }
                     _ => {
-                        app.add_message(MessageRole::System, format!("Unknown command: {}", trimmed));
+                        app.add_message(
+                            MessageRole::System,
+                            format!("Unknown command: {}", trimmed),
+                        );
                         app.clear_input();
                         return ControlFlow::Continue;
                     }
@@ -308,8 +310,12 @@ async fn handle_key_event(
                 while let Some(event) = stream.next().await {
                     let update = match event {
                         Ok(StreamEvent::ContentDelta { delta }) => Some(StreamUpdate::Text(delta)),
-                        Ok(StreamEvent::ThinkingDelta { delta }) => Some(StreamUpdate::Thinking(delta)),
-                        Ok(StreamEvent::ToolUseStart { name, .. }) => Some(StreamUpdate::ToolUse { name }),
+                        Ok(StreamEvent::ThinkingDelta { delta }) => {
+                            Some(StreamUpdate::Thinking(delta))
+                        }
+                        Ok(StreamEvent::ToolUseStart { name, .. }) => {
+                            Some(StreamUpdate::ToolUse { name })
+                        }
                         Ok(StreamEvent::End { .. }) => Some(StreamUpdate::Done),
                         Ok(StreamEvent::Error { message }) => Some(StreamUpdate::Error(message)),
                         Err(e) => Some(StreamUpdate::Error(e.to_string())),
@@ -362,8 +368,12 @@ async fn handle_key_event(
 fn draw_ui(f: &mut Frame, app: &TuiApp) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(3), Constraint::Length(3), Constraint::Length(1)])
-        .split(f.size());
+        .constraints([
+            Constraint::Min(3),
+            Constraint::Length(3),
+            Constraint::Length(1),
+        ])
+        .split(f.area());
 
     let messages_area = chunks[0];
     let input_area = chunks[1];
@@ -388,16 +398,10 @@ fn draw_ui(f: &mut Frame, app: &TuiApp) {
                 MessageRole::Assistant => ("Assistant", Color::Blue),
                 MessageRole::System => ("System", Color::Yellow),
             };
-            let mut lines = vec![
-                Line::from(vec![
-                    Span::styled(
-                        format!("[{}] ", role_label),
-                        Style::default()
-                            .fg(role_color)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                ]),
-            ];
+            let mut lines = vec![Line::from(vec![Span::styled(
+                format!("[{}] ", role_label),
+                Style::default().fg(role_color).add_modifier(Modifier::BOLD),
+            )])];
             // Wrap content lines
             for line in msg.content.lines() {
                 lines.push(Line::from(Span::raw(line.to_string())));
@@ -440,7 +444,7 @@ fn draw_ui(f: &mut Frame, app: &TuiApp) {
         .sum::<usize>() as u16;
     let cursor_y = input_inner.y;
     let cursor_x = input_inner.x + cursor_x.min(input_inner.width.saturating_sub(1));
-    f.set_cursor(cursor_x, cursor_y);
+    f.set_cursor_position((cursor_x, cursor_y));
 
     // Status bar
     let status = app.status_message.as_deref().unwrap_or("");

@@ -6,8 +6,8 @@
 use crate::tools::{Tool, ToolContext};
 use crate::Result;
 use async_trait::async_trait;
+use rand::RngExt;
 use smartassist_core::types::{ToolDefinition, ToolExecutionConfig, ToolGroup, ToolResult};
-use rand::Rng;
 use std::time::Instant;
 use tracing::debug;
 
@@ -84,38 +84,48 @@ impl Tool for CalcTool {
 
         let b = args.get("b").and_then(|v| v.as_f64());
 
-        let precision = args
-            .get("precision")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(10) as i32;
+        let precision = args.get("precision").and_then(|v| v.as_u64()).unwrap_or(10) as i32;
 
         let result = match operation {
             "add" => {
-                let b = b.ok_or_else(|| crate::error::AgentError::tool_execution("b is required for add"))?;
+                let b = b.ok_or_else(|| {
+                    crate::error::AgentError::tool_execution("b is required for add")
+                })?;
                 a + b
             }
             "subtract" => {
-                let b = b.ok_or_else(|| crate::error::AgentError::tool_execution("b is required for subtract"))?;
+                let b = b.ok_or_else(|| {
+                    crate::error::AgentError::tool_execution("b is required for subtract")
+                })?;
                 a - b
             }
             "multiply" => {
-                let b = b.ok_or_else(|| crate::error::AgentError::tool_execution("b is required for multiply"))?;
+                let b = b.ok_or_else(|| {
+                    crate::error::AgentError::tool_execution("b is required for multiply")
+                })?;
                 a * b
             }
             "divide" => {
-                let b = b.ok_or_else(|| crate::error::AgentError::tool_execution("b is required for divide"))?;
+                let b = b.ok_or_else(|| {
+                    crate::error::AgentError::tool_execution("b is required for divide")
+                })?;
                 if b == 0.0 {
                     return Ok(ToolResult::error(tool_use_id, "Division by zero"));
                 }
                 a / b
             }
             "power" => {
-                let b = b.ok_or_else(|| crate::error::AgentError::tool_execution("b is required for power"))?;
+                let b = b.ok_or_else(|| {
+                    crate::error::AgentError::tool_execution("b is required for power")
+                })?;
                 a.powf(b)
             }
             "sqrt" => {
                 if a < 0.0 {
-                    return Ok(ToolResult::error(tool_use_id, "Cannot take square root of negative number"));
+                    return Ok(ToolResult::error(
+                        tool_use_id,
+                        "Cannot take square root of negative number",
+                    ));
                 }
                 a.sqrt()
             }
@@ -127,15 +137,21 @@ impl Tool for CalcTool {
             "floor" => a.floor(),
             "ceil" => a.ceil(),
             "mod" => {
-                let b = b.ok_or_else(|| crate::error::AgentError::tool_execution("b is required for mod"))?;
+                let b = b.ok_or_else(|| {
+                    crate::error::AgentError::tool_execution("b is required for mod")
+                })?;
                 a % b
             }
             "min" => {
-                let b = b.ok_or_else(|| crate::error::AgentError::tool_execution("b is required for min"))?;
+                let b = b.ok_or_else(|| {
+                    crate::error::AgentError::tool_execution("b is required for min")
+                })?;
                 a.min(b)
             }
             "max" => {
-                let b = b.ok_or_else(|| crate::error::AgentError::tool_execution("b is required for max"))?;
+                let b = b.ok_or_else(|| {
+                    crate::error::AgentError::tool_execution("b is required for max")
+                })?;
                 a.max(b)
             }
             _ => {
@@ -251,12 +267,9 @@ impl Tool for RandomTool {
             .and_then(|v| v.as_str())
             .unwrap_or("integer");
 
-        let count = args
-            .get("count")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(1) as usize;
+        let count = args.get("count").and_then(|v| v.as_u64()).unwrap_or(1) as usize;
 
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         let result: serde_json::Value = match value_type {
             "integer" => {
@@ -264,9 +277,10 @@ impl Tool for RandomTool {
                 let max = args.get("max").and_then(|v| v.as_i64()).unwrap_or(100);
 
                 if count == 1 {
-                    serde_json::json!(rng.gen_range(min..=max))
+                    serde_json::json!(rng.random_range(min..=max))
                 } else {
-                    let values: Vec<i64> = (0..count).map(|_| rng.gen_range(min..=max)).collect();
+                    let values: Vec<i64> =
+                        (0..count).map(|_| rng.random_range(min..=max)).collect();
                     serde_json::json!(values)
                 }
             }
@@ -275,32 +289,45 @@ impl Tool for RandomTool {
                 let max = args.get("max").and_then(|v| v.as_f64()).unwrap_or(1.0);
 
                 if count == 1 {
-                    serde_json::json!(rng.gen_range(min..max))
+                    serde_json::json!(rng.random_range(min..max))
                 } else {
-                    let values: Vec<f64> = (0..count).map(|_| rng.gen_range(min..max)).collect();
+                    let values: Vec<f64> = (0..count).map(|_| rng.random_range(min..max)).collect();
                     serde_json::json!(values)
                 }
             }
             "string" => {
                 let length = args.get("length").and_then(|v| v.as_u64()).unwrap_or(16) as usize;
-                let charset = args.get("charset").and_then(|v| v.as_str()).unwrap_or("alphanumeric");
+                let charset = args
+                    .get("charset")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("alphanumeric");
 
                 let chars: Vec<char> = match charset {
-                    "alpha" => "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ".chars().collect(),
+                    "alpha" => "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                        .chars()
+                        .collect(),
                     "numeric" => "0123456789".chars().collect(),
                     "hex" => "0123456789abcdef".chars().collect(),
-                    "base64" => "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".chars().collect(),
-                    _ => "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".chars().collect(),
+                    "base64" => "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+                        .chars()
+                        .collect(),
+                    _ => "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+                        .chars()
+                        .collect(),
                 };
 
                 let generate_string = |rng: &mut rand::rngs::ThreadRng, len: usize| -> String {
-                    (0..len).map(|_| chars[rng.gen_range(0..chars.len())]).collect()
+                    (0..len)
+                        .map(|_| chars[rng.random_range(0..chars.len())])
+                        .collect()
                 };
 
                 if count == 1 {
                     serde_json::json!(generate_string(&mut rng, length))
                 } else {
-                    let values: Vec<String> = (0..count).map(|_| generate_string(&mut rng, length)).collect();
+                    let values: Vec<String> = (0..count)
+                        .map(|_| generate_string(&mut rng, length))
+                        .collect();
                     serde_json::json!(values)
                 }
             }
@@ -308,17 +335,19 @@ impl Tool for RandomTool {
                 let items = args
                     .get("items")
                     .and_then(|v| v.as_array())
-                    .ok_or_else(|| crate::error::AgentError::tool_execution("items is required for choice"))?;
+                    .ok_or_else(|| {
+                        crate::error::AgentError::tool_execution("items is required for choice")
+                    })?;
 
                 if items.is_empty() {
                     return Ok(ToolResult::error(tool_use_id, "items array is empty"));
                 }
 
                 if count == 1 {
-                    items[rng.gen_range(0..items.len())].clone()
+                    items[rng.random_range(0..items.len())].clone()
                 } else {
                     let choices: Vec<serde_json::Value> = (0..count)
-                        .map(|_| items[rng.gen_range(0..items.len())].clone())
+                        .map(|_| items[rng.random_range(0..items.len())].clone())
                         .collect();
                     serde_json::json!(choices)
                 }
@@ -327,18 +356,20 @@ impl Tool for RandomTool {
                 let items = args
                     .get("items")
                     .and_then(|v| v.as_array())
-                    .ok_or_else(|| crate::error::AgentError::tool_execution("items is required for shuffle"))?;
+                    .ok_or_else(|| {
+                        crate::error::AgentError::tool_execution("items is required for shuffle")
+                    })?;
 
                 let mut shuffled = items.clone();
                 for i in (1..shuffled.len()).rev() {
-                    let j = rng.gen_range(0..=i);
+                    let j = rng.random_range(0..=i);
                     shuffled.swap(i, j);
                 }
                 serde_json::json!(shuffled)
             }
             "bytes" => {
                 let length = args.get("length").and_then(|v| v.as_u64()).unwrap_or(16) as usize;
-                let bytes: Vec<u8> = (0..length).map(|_| rng.gen()).collect();
+                let bytes: Vec<u8> = (0..length).map(|_| rng.random()).collect();
                 serde_json::json!(hex::encode(bytes))
             }
             _ => {
@@ -428,15 +459,9 @@ impl Tool for UuidTool {
     ) -> Result<ToolResult> {
         let start = Instant::now();
 
-        let _version = args
-            .get("version")
-            .and_then(|v| v.as_str())
-            .unwrap_or("v4");
+        let _version = args.get("version").and_then(|v| v.as_str()).unwrap_or("v4");
 
-        let count = args
-            .get("count")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(1) as usize;
+        let count = args.get("count").and_then(|v| v.as_u64()).unwrap_or(1) as usize;
 
         let format = args
             .get("format")
@@ -598,7 +623,11 @@ mod tests {
             .unwrap();
 
         assert!(!result.is_error);
-        let value = result.output.get("result").and_then(|v| v.as_i64()).unwrap();
+        let value = result
+            .output
+            .get("result")
+            .and_then(|v| v.as_i64())
+            .unwrap();
         assert!(value >= 1 && value <= 10);
     }
 
@@ -621,7 +650,11 @@ mod tests {
             .unwrap();
 
         assert!(!result.is_error);
-        let value = result.output.get("result").and_then(|v| v.as_str()).unwrap();
+        let value = result
+            .output
+            .get("result")
+            .and_then(|v| v.as_str())
+            .unwrap();
         assert_eq!(value.len(), 8);
     }
 
@@ -643,7 +676,11 @@ mod tests {
             .unwrap();
 
         assert!(!result.is_error);
-        let value = result.output.get("result").and_then(|v| v.as_str()).unwrap();
+        let value = result
+            .output
+            .get("result")
+            .and_then(|v| v.as_str())
+            .unwrap();
         assert!(["a", "b", "c"].contains(&value));
     }
 
@@ -664,7 +701,11 @@ mod tests {
             .unwrap();
 
         assert!(!result.is_error);
-        let uuid_str = result.output.get("result").and_then(|v| v.as_str()).unwrap();
+        let uuid_str = result
+            .output
+            .get("result")
+            .and_then(|v| v.as_str())
+            .unwrap();
         assert!(uuid::Uuid::parse_str(uuid_str).is_ok());
     }
 
@@ -685,7 +726,11 @@ mod tests {
             .unwrap();
 
         assert!(!result.is_error);
-        let uuids = result.output.get("result").and_then(|v| v.as_array()).unwrap();
+        let uuids = result
+            .output
+            .get("result")
+            .and_then(|v| v.as_array())
+            .unwrap();
         assert_eq!(uuids.len(), 3);
     }
 }

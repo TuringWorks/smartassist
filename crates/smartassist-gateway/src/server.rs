@@ -166,7 +166,9 @@ impl GatewayState {
                     }
                 }
             }
-            return Err(GatewayError::Auth("Invalid authentication token".to_string()));
+            return Err(GatewayError::Auth(
+                "Invalid authentication token".to_string(),
+            ));
         }
 
         if self.config.require_auth {
@@ -204,7 +206,10 @@ impl GatewayState {
             }
         }
 
-        warn!("Rejected WebSocket connection from untrusted origin: {}", origin);
+        warn!(
+            "Rejected WebSocket connection from untrusted origin: {}",
+            origin
+        );
         false
     }
 }
@@ -299,7 +304,9 @@ impl Gateway {
         let tool_executor = Arc::new(smartassist_agent::ToolExecutor::new(tool_registry.clone()));
 
         // Create a credential pool manager for API key rotation
-        let credential_pool = config.credential_pool.clone()
+        let credential_pool = config
+            .credential_pool
+            .clone()
             .unwrap_or_else(|| Arc::new(smartassist_providers::CredentialPoolManager::new()));
 
         let mut context = crate::handlers::HandlerContext::new()
@@ -310,9 +317,11 @@ impl Gateway {
         // Conditionally enable guardrails
         if config.enable_guardrails {
             let guardrail = Arc::new(smartassist_agent::GuardrailEngine::with_defaults(
-                context.tool_executor.clone().unwrap_or_else(|| Arc::new(smartassist_agent::ToolExecutor::new(
-                    Arc::new(smartassist_agent::ToolRegistry::new())
-                )))
+                context.tool_executor.clone().unwrap_or_else(|| {
+                    Arc::new(smartassist_agent::ToolExecutor::new(Arc::new(
+                        smartassist_agent::ToolRegistry::new(),
+                    )))
+                }),
             ));
             context = context.with_guardrail_engine(guardrail);
             info!("Guardrails enabled");
@@ -328,7 +337,10 @@ impl Gateway {
         // Conditionally enable context compression
         if let Some(ref compression_config) = config.compression_config {
             context = context.with_compression_config(compression_config.clone());
-            info!("Context compression enabled (threshold: {:.0}%)", compression_config.compaction_threshold * 100.0);
+            info!(
+                "Context compression enabled (threshold: {:.0}%)",
+                compression_config.compaction_threshold * 100.0
+            );
         }
 
         // Conditionally enable learnings system
@@ -337,7 +349,7 @@ impl Gateway {
                 Ok(store) => {
                     let store = Arc::new(store);
                     let context_provider = Arc::new(
-                        smartassist_learnings::LearningContextProvider::new(store.clone(), 10)
+                        smartassist_learnings::LearningContextProvider::new(store.clone(), 10),
                     );
                     context = context
                         .with_learning_store(store)
@@ -354,9 +366,9 @@ impl Gateway {
             context = context.with_provider(provider);
         }
 
-        let browser_manager = Arc::new(smartassist_browser::BrowserManager::new(
-            Arc::new(smartassist_browser::chromiumoxide::ChromiumoxideBackend::new()),
-        ));
+        let browser_manager = Arc::new(smartassist_browser::BrowserManager::new(Arc::new(
+            smartassist_browser::chromiumoxide::ChromiumoxideBackend::new(),
+        )));
         let canvas_manager = Arc::new(smartassist_canvas::CanvasManager::new());
 
         let (talk_runtime, _talk_events) = smartassist_talk::TalkRuntimeBuilder::default().build();
@@ -414,10 +426,7 @@ impl Gateway {
 
     /// Run the gateway server with an externally-provided listener.
     /// Useful for tests that need to bind to port 0.
-    pub async fn run_with_listener(
-        &self,
-        listener: tokio::net::TcpListener,
-    ) -> Result<()> {
+    pub async fn run_with_listener(&self, listener: tokio::net::TcpListener) -> Result<()> {
         let app = self.create_router();
         axum::serve(
             listener,
@@ -517,7 +526,10 @@ async fn ws_handler(
     // Max connections check
     let client_count = state.clients.read().await.len();
     if client_count >= state.config.max_connections {
-        warn!("Max connections ({}) reached, rejecting {}", state.config.max_connections, addr);
+        warn!(
+            "Max connections ({}) reached, rejecting {}",
+            state.config.max_connections, addr
+        );
         return Err(axum::http::StatusCode::SERVICE_UNAVAILABLE);
     }
 
@@ -591,15 +603,14 @@ async fn handle_socket(
                             JsonRpcError::new(-32000, "Rate limit exceeded".to_string()),
                         );
                         let err_str = serde_json::to_string(&err_resp).unwrap_or_default();
-                        if sender.send(Message::Text(err_str)).await.is_err() {
+                        if sender.send(Message::Text(err_str.into())).await.is_err() {
                             break;
                         }
                         continue;
                     }
 
-                    let response =
-                        handle_message(&text, &state_clone, &auth_clone).await;
-                    if let Err(e) = sender.send(Message::Text(response)).await {
+                    let response = handle_message(&text, &state_clone, &auth_clone).await;
+                    if let Err(e) = sender.send(Message::Text(response.into())).await {
                         error!("Failed to send response: {}", e);
                         break;
                     }
@@ -653,15 +664,15 @@ async fn handle_message(text: &str, state: &GatewayState, auth: &AuthContext) ->
     let request: JsonRpcRequest = match serde_json::from_str(text) {
         Ok(r) => r,
         Err(e) => {
-            let response = JsonRpcResponse::error(
-                None,
-                JsonRpcError::parse_error(e.to_string()),
-            );
+            let response = JsonRpcResponse::error(None, JsonRpcError::parse_error(e.to_string()));
             return serde_json::to_string(&response).unwrap_or_default();
         }
     };
 
-    debug!("Received RPC request: {} (client: {})", request.method, auth.client_id);
+    debug!(
+        "Received RPC request: {} (client: {})",
+        request.method, auth.client_id
+    );
 
     // Check authorization based on method name
     if let Some(required_scope) = required_scope_for_method(&request.method) {
@@ -681,14 +692,14 @@ async fn handle_message(text: &str, state: &GatewayState, auth: &AuthContext) ->
     }
 
     // Dispatch to method handler
-    let result = state.methods.call(&request.method, request.params.clone()).await;
+    let result = state
+        .methods
+        .call(&request.method, request.params.clone())
+        .await;
 
     let response = match result {
         Ok(value) => JsonRpcResponse::success(request.id, value),
-        Err(e) => JsonRpcResponse::error(
-            request.id,
-            JsonRpcError::new(e.code(), e.to_string()),
-        ),
+        Err(e) => JsonRpcResponse::error(request.id, JsonRpcError::new(e.code(), e.to_string())),
     };
 
     serde_json::to_string(&response).unwrap_or_default()
@@ -722,9 +733,7 @@ fn required_scope_for_method(method: &str) -> Option<Scope> {
     }
 
     // Pairing methods
-    if method.starts_with("node.pair")
-        || method.starts_with("device.")
-    {
+    if method.starts_with("node.pair") || method.starts_with("device.") {
         return Some(Scope::Pairing);
     }
 
@@ -774,18 +783,27 @@ mod tests {
     fn test_required_scope_write_methods() {
         assert_eq!(required_scope_for_method("chat.send"), Some(Scope::Write));
         assert_eq!(required_scope_for_method("agent.run"), Some(Scope::Write));
-        assert_eq!(required_scope_for_method("message.send"), Some(Scope::Write));
+        assert_eq!(
+            required_scope_for_method("message.send"),
+            Some(Scope::Write)
+        );
     }
 
     #[test]
     fn test_required_scope_admin_methods() {
-        assert_eq!(required_scope_for_method("gateway.restart"), Some(Scope::Admin));
+        assert_eq!(
+            required_scope_for_method("gateway.restart"),
+            Some(Scope::Admin)
+        );
         assert_eq!(required_scope_for_method("node.invoke"), Some(Scope::Admin));
     }
 
     #[test]
     fn test_required_scope_exec_methods() {
-        assert_eq!(required_scope_for_method("exec.approval.request"), Some(Scope::Approvals));
+        assert_eq!(
+            required_scope_for_method("exec.approval.request"),
+            Some(Scope::Approvals)
+        );
     }
 
     #[test]

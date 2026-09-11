@@ -49,7 +49,7 @@ impl GoogleProvider {
 
         Ok(Self {
             client,
-            api_key: SecretString::new(api_key),
+            api_key: SecretString::new(api_key.into()),
             api_base: DEFAULT_API_BASE.to_string(),
             default_model: "gemini-2.0-flash".to_string(),
         })
@@ -92,7 +92,9 @@ impl GoogleProvider {
                 Role::System => {
                     // Gemini uses system_instruction for system messages
                     system_instruction = Some(GeminiSystemInstruction {
-                        parts: vec![GeminiPart::Text { text: msg.content.to_text() }],
+                        parts: vec![GeminiPart::Text {
+                            text: msg.content.to_text(),
+                        }],
                     });
                 }
                 Role::User => {
@@ -576,10 +578,18 @@ struct GeminiSystemInstruction {
 #[derive(Serialize, Deserialize)]
 #[serde(untagged)]
 enum GeminiPart {
-    Text { text: String },
-    InlineData { inline_data: InlineData },
-    FunctionCall { function_call: GeminiFunctionCall },
-    FunctionResponse { function_response: GeminiFunctionResponse },
+    Text {
+        text: String,
+    },
+    InlineData {
+        inline_data: InlineData,
+    },
+    FunctionCall {
+        function_call: GeminiFunctionCall,
+    },
+    FunctionResponse {
+        function_response: GeminiFunctionResponse,
+    },
 }
 
 #[derive(Serialize, Deserialize)]

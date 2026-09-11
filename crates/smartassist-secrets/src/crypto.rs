@@ -7,7 +7,7 @@
 use aes_gcm::aead::Aead;
 use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
 use hkdf::Hkdf;
-use rand::RngCore;
+use rand::Rng;
 use sha2::Sha256;
 
 use crate::error::{Result, SecretError};
@@ -35,18 +35,18 @@ fn derive_key(master_key: &[u8], salt: &[u8]) -> [u8; KEY_SIZE] {
 /// generated so the same plaintext encrypted twice produces different output.
 pub fn encrypt(master_key: &[u8], plaintext: &[u8]) -> Result<(Vec<u8>, Vec<u8>)> {
     let mut salt = vec![0u8; SALT_SIZE];
-    rand::thread_rng().fill_bytes(&mut salt);
+    rand::rng().fill_bytes(&mut salt);
 
     let mut nonce_bytes = [0u8; NONCE_SIZE];
-    rand::thread_rng().fill_bytes(&mut nonce_bytes);
+    rand::rng().fill_bytes(&mut nonce_bytes);
 
     let key = derive_key(master_key, &salt);
     let cipher = Aes256Gcm::new_from_slice(&key)
         .map_err(|e| SecretError::EncryptionFailed(e.to_string()))?;
 
-    let nonce = Nonce::from_slice(&nonce_bytes);
+    let nonce = Nonce::from(nonce_bytes);
     let ciphertext = cipher
-        .encrypt(nonce, plaintext)
+        .encrypt(&nonce, plaintext)
         .map_err(|e| SecretError::EncryptionFailed(e.to_string()))?;
 
     // Prepend nonce to ciphertext so decrypt can split it back out.
@@ -75,16 +75,17 @@ pub fn decrypt(master_key: &[u8], encrypted: &[u8], salt: &[u8]) -> Result<Vec<u
     let cipher = Aes256Gcm::new_from_slice(&key)
         .map_err(|e| SecretError::DecryptionFailed(e.to_string()))?;
 
-    let nonce = Nonce::from_slice(nonce_bytes);
+    let nonce = Nonce::try_from(nonce_bytes)
+        .map_err(|_| SecretError::DecryptionFailed("invalid nonce length".to_string()))?;
     cipher
-        .decrypt(nonce, ciphertext)
+        .decrypt(&nonce, ciphertext)
         .map_err(|e| SecretError::DecryptionFailed(e.to_string()))
 }
 
 /// Generate a new random 256-bit master key.
 pub fn generate_master_key() -> Vec<u8> {
     let mut key = vec![0u8; KEY_SIZE];
-    rand::thread_rng().fill_bytes(&mut key);
+    rand::rng().fill_bytes(&mut key);
     key
 }
 

@@ -7,8 +7,8 @@ use super::{Tool, ToolContext};
 use crate::error::AgentError;
 use crate::Result;
 use async_trait::async_trait;
-use smartassist_core::types::{ToolDefinition, ToolExecutionConfig, ToolGroup, ToolResult};
 use reqwest::Client;
+use smartassist_core::types::{ToolDefinition, ToolExecutionConfig, ToolGroup, ToolResult};
 use std::time::{Duration, Instant};
 use tracing::debug;
 
@@ -193,7 +193,11 @@ impl Tool for WebFetchTool {
         if !status.is_success() {
             return Ok(ToolResult::error(
                 tool_use_id,
-                format!("HTTP error: {} {}", status.as_u16(), status.canonical_reason().unwrap_or("")),
+                format!(
+                    "HTTP error: {} {}",
+                    status.as_u16(),
+                    status.canonical_reason().unwrap_or("")
+                ),
             ));
         }
 
@@ -221,31 +225,33 @@ impl Tool for WebFetchTool {
             "json" => {
                 // Try to parse as JSON
                 match serde_json::from_str::<serde_json::Value>(&body) {
-                    Ok(json) => Ok(
-                        ToolResult::success(tool_use_id, serde_json::json!({
+                    Ok(json) => Ok(ToolResult::success(
+                        tool_use_id,
+                        serde_json::json!({
                             "url": url,
                             "status": status.as_u16(),
                             "content_type": content_type,
                             "content": json,
-                        }))
-                        .with_duration(duration),
-                    ),
+                        }),
+                    )
+                    .with_duration(duration)),
                     Err(e) => Ok(ToolResult::error(
                         tool_use_id,
                         format!("Failed to parse JSON: {}", e),
                     )),
                 }
             }
-            "html" => Ok(
-                ToolResult::success(tool_use_id, serde_json::json!({
+            "html" => Ok(ToolResult::success(
+                tool_use_id,
+                serde_json::json!({
                     "url": url,
                     "status": status.as_u16(),
                     "content_type": content_type,
                     "content": body,
                     "length": body.len(),
-                }))
-                .with_duration(duration),
-            ),
+                }),
+            )
+            .with_duration(duration)),
             _ => {
                 // Extract text from HTML
                 let title = self.extract_title(&body);
@@ -259,17 +265,18 @@ impl Tool for WebFetchTool {
                     text
                 };
 
-                Ok(
-                    ToolResult::success(tool_use_id, serde_json::json!({
+                Ok(ToolResult::success(
+                    tool_use_id,
+                    serde_json::json!({
                         "url": url,
                         "status": status.as_u16(),
                         "title": title,
                         "description": description,
                         "content": text,
                         "length": text.len(),
-                    }))
-                    .with_duration(duration),
+                    }),
                 )
+                .with_duration(duration))
             }
         }
     }
@@ -398,14 +405,19 @@ impl Tool for WebSearchTool {
             }
         };
 
-        // Make search request (assuming a generic search API format)
+        // Make search request (assuming a generic search API format).
+        // Query params are appended via `Url::query_pairs_mut` rather than
+        // reqwest's `.query()` builder so this doesn't depend on reqwest's
+        // optional `query` cargo feature.
+        let mut url = reqwest::Url::parse(&endpoint)
+            .map_err(|e| AgentError::tool_execution(format!("Invalid search endpoint: {}", e)))?;
+        url.query_pairs_mut()
+            .append_pair("q", query)
+            .append_pair("num", &num_results.to_string());
+
         let response = self
             .client
-            .get(&endpoint)
-            .query(&[
-                ("q", query),
-                ("num", &num_results.to_string()),
-            ])
+            .get(url)
             .header("Authorization", format!("Bearer {}", api_key))
             .send()
             .await
@@ -418,10 +430,9 @@ impl Tool for WebSearchTool {
             ));
         }
 
-        let body: serde_json::Value = response
-            .json()
-            .await
-            .map_err(|e| AgentError::tool_execution(format!("Failed to parse search response: {}", e)))?;
+        let body: serde_json::Value = response.json().await.map_err(|e| {
+            AgentError::tool_execution(format!("Failed to parse search response: {}", e))
+        })?;
 
         // Parse results (format depends on the search API)
         let results: Vec<SearchResult> = body
@@ -434,11 +445,13 @@ impl Tool for WebSearchTool {
                     .filter_map(|item| {
                         Some(SearchResult {
                             title: item.get("title")?.as_str()?.to_string(),
-                            url: item.get("url")
+                            url: item
+                                .get("url")
                                 .or_else(|| item.get("link"))
                                 .and_then(|v| v.as_str())
                                 .map(|s| s.to_string())?,
-                            snippet: item.get("snippet")
+                            snippet: item
+                                .get("snippet")
                                 .or_else(|| item.get("description"))
                                 .and_then(|v| v.as_str())
                                 .map(|s| s.to_string())
@@ -451,14 +464,15 @@ impl Tool for WebSearchTool {
             .unwrap_or_default();
 
         let duration = start.elapsed();
-        Ok(
-            ToolResult::success(tool_use_id, serde_json::json!({
+        Ok(ToolResult::success(
+            tool_use_id,
+            serde_json::json!({
                 "query": query,
                 "results": results,
                 "count": results.len(),
-            }))
-            .with_duration(duration),
+            }),
         )
+        .with_duration(duration))
     }
 
     fn group(&self) -> ToolGroup {

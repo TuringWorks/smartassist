@@ -22,8 +22,14 @@ async fn boot_test_gateway() -> (Gateway, String) {
     (gateway, url)
 }
 
-async fn ws_rpc_call(ws_url: &str, method: &str, params: Option<serde_json::Value>) -> serde_json::Value {
-    let (mut ws, _) = connect_async(ws_url).await.expect("WebSocket connect failed");
+async fn ws_rpc_call(
+    ws_url: &str,
+    method: &str,
+    params: Option<serde_json::Value>,
+) -> serde_json::Value {
+    let (mut ws, _) = connect_async(ws_url)
+        .await
+        .expect("WebSocket connect failed");
 
     let request = serde_json::json!({
         "jsonrpc": "2.0",
@@ -32,9 +38,11 @@ async fn ws_rpc_call(ws_url: &str, method: &str, params: Option<serde_json::Valu
         "params": params,
     });
 
-    ws.send(tokio_tungstenite::tungstenite::protocol::Message::Text(request.to_string()))
-        .await
-        .unwrap();
+    ws.send(tokio_tungstenite::tungstenite::protocol::Message::Text(
+        request.to_string().into(),
+    ))
+    .await
+    .unwrap();
 
     let response = timeout(Duration::from_secs(5), ws.next())
         .await

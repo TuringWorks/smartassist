@@ -23,7 +23,7 @@ hex.workspace = true
 once_cell.workspace = true
 regex.workspace = true
 aho-corasick.workspace = true
-dirs = "5.0"
+dirs = "7.0"
 hostname = "0.4"
 serde_yaml = "0.9"
 

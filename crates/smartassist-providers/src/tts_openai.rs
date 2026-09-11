@@ -1,13 +1,13 @@
 //! OpenAI TTS provider.
 
-use base64::Engine;
 use crate::media::{
     GeneratedMedia, MediaModelInfo, MediaModelKind, MediaProviderCapabilities, TtsProvider,
     TtsRequest,
 };
 use crate::Result;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
+use base64::Engine;
+use serde::Serialize;
 
 /// OpenAI TTS provider.
 pub struct OpenAiTtsProvider {
@@ -73,9 +73,10 @@ impl TtsProvider for OpenAiTtsProvider {
             ));
         }
 
-        let bytes = response.bytes().await.map_err(|e| {
-            crate::ProviderError::Network(e)
-        })?;
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|e| crate::ProviderError::Network(e))?;
         let byte_count = bytes.len();
 
         Ok(GeneratedMedia {
@@ -103,7 +104,12 @@ impl TtsProvider for OpenAiTtsProvider {
         MediaProviderCapabilities {
             streaming: false,
             batch: false,
-            formats: vec!["mp3".to_string(), "opus".to_string(), "aac".to_string(), "flac".to_string()],
+            formats: vec![
+                "mp3".to_string(),
+                "opus".to_string(),
+                "aac".to_string(),
+                "flac".to_string(),
+            ],
             max_prompt_length: Some(4096),
         }
     }
