@@ -111,6 +111,19 @@ impl TaskRegistry {
         })
     }
 
+    /// Lock the connection, recovering it if a prior holder panicked.
+    ///
+    /// A panic mid-query while holding this lock (e.g. from `rusqlite`
+    /// returning an error path we didn't expect) would otherwise poison the
+    /// mutex and make every later registry call panic too, not just the one
+    /// that failed. The connection itself isn't corrupted by a panic in the
+    /// caller, so it's safe to keep using it.
+    fn conn(&self) -> std::sync::MutexGuard<'_, Connection> {
+        self.conn
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     /// Create a new task entry.
     pub async fn create(
         &self,
@@ -129,7 +142,7 @@ impl TaskRegistry {
         let params_json = serde_json::to_string(&params)
             .map_err(|e| crate::AgentError::Internal(format!("JSON error: {}", e)))?;
 
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             r#"
             INSERT INTO tasks (id, name, task_type, status, params, created_at, session_id, tool_name)
@@ -170,7 +183,7 @@ impl TaskRegistry {
 
     /// Get a task by ID.
     pub async fn get(&self, id: &str) -> crate::Result<Option<TaskEntry>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
                 r#"
@@ -229,7 +242,7 @@ impl TaskRegistry {
         let result_json = result.as_ref().map(|v| serde_json::to_string(v).unwrap_or_default());
         let status_str = status.to_string();
 
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let result_str = result_json.as_deref().unwrap_or("");
         let error_str = error.as_deref().unwrap_or("");
         let now_str = now.to_rfc3339();
@@ -261,7 +274,7 @@ impl TaskRegistry {
 
     /// Increment retry count.
     pub async fn increment_retry(&self, id: &str) -> crate::Result<bool> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let rows = conn
             .execute(
                 "UPDATE tasks SET retry_count = retry_count + 1 WHERE id = ?1",
@@ -279,7 +292,7 @@ impl TaskRegistry {
         limit: Option<i64>,
     ) -> crate::Result<Vec<TaskEntry>> {
         let limit = limit.unwrap_or(100);
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
 
         let query = if status.is_some() {
             r#"
@@ -373,7 +386,7 @@ impl TaskRegistry {
 
     /// Delete a task by ID.
     pub async fn delete(&self, id: &str) -> crate::Result<bool> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let rows = conn
             .execute("DELETE FROM tasks WHERE id = ?1", [id])
             .map_err(|e| crate::AgentError::Internal(format!("Failed to delete task: {}", e)))?;
@@ -383,7 +396,7 @@ impl TaskRegistry {
 
     /// Audit: count tasks by status.
     pub async fn audit_summary(&self) -> crate::Result<Vec<(TaskStatus, i64)>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare("SELECT status, COUNT(*) as cnt FROM tasks GROUP BY status")
             .map_err(|e| crate::AgentError::Internal(format!("Audit failed: {}", e)))?;
@@ -409,7 +422,7 @@ impl TaskRegistry {
         threshold_minutes: i64,
     ) -> crate::Result<Vec<TaskEntry>> {
         let threshold = Utc::now() - chrono::Duration::minutes(threshold_minutes);
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
 
         let mut stmt = conn
             .prepare(
