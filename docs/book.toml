@@ -1,0 +1,21 @@
+[book]
+title = "SmartAssist"
+authors = ["SmartAssist Contributors"]
+description = "High-performance Rust implementation of the SmartAssist AI agent gateway"
+language = "en"
+src = "src"
+
+[output.html]
+git-repository-url = "https://github.com/TuringWorks/smartassist"
+edit-url-template = "https://github.com/TuringWorks/smartassist/edit/main/docs/{path}"
+default-theme = "light"
+preferred-dark-theme = "navy"
+site-url = "/smartassist/"
+
+[output.html.fold]
+enable = true
+level = 1
+
+[output.html.search]
+enable = true
+limit-results = 20
