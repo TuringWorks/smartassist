@@ -6,4 +6,16 @@
 .vibecli
 .vibeui
 .obsidian/
+.claude/
 /docs/book
+
+# Android
+apps/android/local.properties
+apps/android/.gradle/
+apps/android/build/
+apps/android/app/build/
+*.hprof
+
+# Swift Package Manager
+apps/ios/SmartAssist/.build/
+apps/ios/SmartAssist/.swiftpm/
