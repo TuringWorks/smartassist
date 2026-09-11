@@ -13,19 +13,21 @@ import {
 } from "../components/FormComponents";
 
 const POPULAR_MODELS = [
-  { value: "anthropic/claude-3-5-sonnet-20240620", label: "Claude 3.5 Sonnet" },
-  { value: "anthropic/claude-3-opus-20240229", label: "Claude 3 Opus" },
-  { value: "anthropic/claude-3-haiku-20240307", label: "Claude 3 Haiku" },
-  { value: "openai/gpt-4o", label: "GPT-4o" },
-  { value: "openai/gpt-4-turbo", label: "GPT-4 Turbo" },
-  { value: "openai/gpt-3.5-turbo", label: "GPT-3.5 Turbo" },
-  { value: "google/gemini-1.5-pro", label: "Gemini 1.5 Pro" },
-  { value: "google/gemini-1.5-flash", label: "Gemini 1.5 Flash" },
-  { value: "groq/llama3-70b-8192", label: "Groq Llama 3 70B" },
-  { value: "groq/llama3-8b-8192", label: "Groq Llama 3 8B" },
-  { value: "groq/mixtral-8x7b-32768", label: "Groq Mixtral" },
-  { value: "ollama/llama3", label: "Ollama Llama 3" },
-  { value: "ollama/phi3", label: "Ollama Phi-3" },
+  { value: "anthropic/claude-opus-5", label: "Claude Opus 5" },
+  { value: "anthropic/claude-sonnet-5", label: "Claude Sonnet 5" },
+  { value: "anthropic/claude-haiku-4-5", label: "Claude Haiku 4.5" },
+  { value: "openai/gpt-5.6-sol", label: "GPT-5.6 Sol" },
+  { value: "openai/gpt-5.6-terra", label: "GPT-5.6 Terra" },
+  { value: "openai/gpt-5.6-luna", label: "GPT-5.6 Luna" },
+  { value: "google/gemini-3.6-flash", label: "Gemini 3.6 Flash" },
+  { value: "google/gemini-3.1-pro-preview", label: "Gemini 3.1 Pro" },
+  { value: "deepseek/deepseek-v4-pro", label: "DeepSeek V4 Pro" },
+  { value: "deepseek/deepseek-v4-flash", label: "DeepSeek V4 Flash" },
+  { value: "zhipu/glm-5.2", label: "GLM-5.2" },
+  { value: "poolside/laguna-s-2.1", label: "Poolside Laguna S 2.1" },
+  { value: "poolside/laguna-m-1", label: "Poolside Laguna M 1" },
+  { value: "ollama/llama4", label: "Ollama Llama 4 (local)" },
+  { value: "ollama/qwen3-coder", label: "Ollama Qwen3 Coder (local)" },
 ];
 
 function ModelSelect(props: { label: string; value: string; onChange: (v: string) => void; help?: string }) {
@@ -130,7 +132,7 @@ export default function Agents() {
                     return c;
                   })
                 }
-                help="Format: provider/model-id (e.g. anthropic/claude-3-5-sonnet-20240620)"
+                help="Format: provider/model-id (e.g. anthropic/claude-sonnet-5)"
               />
               <EnumSelect<ThinkingLevel>
                 label="Default Thinking Level"

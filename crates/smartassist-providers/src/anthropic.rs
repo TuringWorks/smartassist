@@ -9,7 +9,7 @@
 //!
 //! let provider = AnthropicProvider::new("your-api-key")?;
 //! let response = provider.chat(
-//!     "claude-sonnet-4-20250514",
+//!     "claude-sonnet-5",
 //!     &[Message::user("Hello!")],
 //!     None,
 //! ).await?;
@@ -71,7 +71,7 @@ impl AnthropicProvider {
             client,
             api_key: SecretString::new(api_key.into()),
             api_base: DEFAULT_API_BASE.to_string(),
-            default_model: "claude-sonnet-4-20250514".to_string(),
+            default_model: "claude-sonnet-5".to_string(),
             timeout: 300,
         })
     }
@@ -293,57 +293,24 @@ impl Provider for AnthropicProvider {
     }
 
     async fn list_models(&self) -> Result<Vec<ModelInfo>> {
-        // Anthropic doesn't have a list models endpoint, so we return known models
+        // Anthropic doesn't have a list models endpoint, so we return known
+        // models. Ordered newest-capability first, matching every model that
+        // is `Active` on Anthropic's model-status table.
+        //
+        // claude-mythos-5 is deliberately absent — it is available only to
+        // approved US organizations, and this list cannot express
+        // "available to some callers", so listing it would 403 for most
+        // users.
         Ok(vec![
             ModelInfo {
-                id: "claude-opus-4-20250514".to_string(),
+                id: "claude-fable-5-1".to_string(),
                 provider: "anthropic".to_string(),
-                display_name: "Claude Opus 4".to_string(),
-                context_window: 200_000,
-                max_output_tokens: 32_000,
-                pricing: Some(ModelPricing {
-                    input_per_1m: 15.0,
-                    output_per_1m: 75.0,
-                    cache_creation_per_1m: Some(1.88),
-                    cache_read_per_1m: Some(0.19),
-                }),
-                capabilities: ModelCapabilities {
-                    vision: true,
-                    tool_use: true,
-                    streaming: true,
-                    extended_thinking: true,
-                    json_mode: false,
-                },
-            },
-            ModelInfo {
-                id: "claude-sonnet-4-20250514".to_string(),
-                provider: "anthropic".to_string(),
-                display_name: "Claude Sonnet 4".to_string(),
+                display_name: "Claude Fable 5.1".to_string(),
                 context_window: 200_000,
                 max_output_tokens: 64_000,
                 pricing: Some(ModelPricing {
-                    input_per_1m: 3.0,
-                    output_per_1m: 15.0,
-                    cache_creation_per_1m: Some(0.38),
-                    cache_read_per_1m: Some(0.03),
-                }),
-                capabilities: ModelCapabilities {
-                    vision: true,
-                    tool_use: true,
-                    streaming: true,
-                    extended_thinking: true,
-                    json_mode: false,
-                },
-            },
-            ModelInfo {
-                id: "claude-3-5-haiku-20241022".to_string(),
-                provider: "anthropic".to_string(),
-                display_name: "Claude 3.5 Haiku".to_string(),
-                context_window: 200_000,
-                max_output_tokens: 8192,
-                pricing: Some(ModelPricing {
-                    input_per_1m: 0.80,
-                    output_per_1m: 4.0,
+                    input_per_1m: 10.0,
+                    output_per_1m: 50.0,
                     cache_creation_per_1m: None,
                     cache_read_per_1m: None,
                 }),
@@ -351,7 +318,167 @@ impl Provider for AnthropicProvider {
                     vision: true,
                     tool_use: true,
                     streaming: true,
-                    extended_thinking: false,
+                    extended_thinking: true,
+                    json_mode: false,
+                },
+            },
+            ModelInfo {
+                id: "claude-opus-5".to_string(),
+                provider: "anthropic".to_string(),
+                display_name: "Claude Opus 5".to_string(),
+                context_window: 200_000,
+                max_output_tokens: 64_000,
+                pricing: Some(ModelPricing {
+                    input_per_1m: 5.0,
+                    output_per_1m: 25.0,
+                    cache_creation_per_1m: None,
+                    cache_read_per_1m: None,
+                }),
+                capabilities: ModelCapabilities {
+                    vision: true,
+                    tool_use: true,
+                    streaming: true,
+                    extended_thinking: true,
+                    json_mode: false,
+                },
+            },
+            ModelInfo {
+                id: "claude-fable-5".to_string(),
+                provider: "anthropic".to_string(),
+                display_name: "Claude Fable 5".to_string(),
+                context_window: 200_000,
+                max_output_tokens: 64_000,
+                pricing: Some(ModelPricing {
+                    input_per_1m: 10.0,
+                    output_per_1m: 50.0,
+                    cache_creation_per_1m: None,
+                    cache_read_per_1m: None,
+                }),
+                capabilities: ModelCapabilities {
+                    vision: true,
+                    tool_use: true,
+                    streaming: true,
+                    extended_thinking: true,
+                    json_mode: false,
+                },
+            },
+            ModelInfo {
+                id: "claude-sonnet-5".to_string(),
+                provider: "anthropic".to_string(),
+                display_name: "Claude Sonnet 5".to_string(),
+                context_window: 200_000,
+                max_output_tokens: 64_000,
+                pricing: Some(ModelPricing {
+                    input_per_1m: 2.0,
+                    output_per_1m: 10.0,
+                    cache_creation_per_1m: None,
+                    cache_read_per_1m: None,
+                }),
+                capabilities: ModelCapabilities {
+                    vision: true,
+                    tool_use: true,
+                    streaming: true,
+                    extended_thinking: true,
+                    json_mode: false,
+                },
+            },
+            ModelInfo {
+                id: "claude-opus-4-8".to_string(),
+                provider: "anthropic".to_string(),
+                display_name: "Claude Opus 4.8".to_string(),
+                context_window: 200_000,
+                max_output_tokens: 32_000,
+                pricing: Some(ModelPricing {
+                    input_per_1m: 5.0,
+                    output_per_1m: 25.0,
+                    cache_creation_per_1m: None,
+                    cache_read_per_1m: None,
+                }),
+                capabilities: ModelCapabilities {
+                    vision: true,
+                    tool_use: true,
+                    streaming: true,
+                    extended_thinking: true,
+                    json_mode: false,
+                },
+            },
+            ModelInfo {
+                id: "claude-opus-4-7".to_string(),
+                provider: "anthropic".to_string(),
+                display_name: "Claude Opus 4.7".to_string(),
+                context_window: 200_000,
+                max_output_tokens: 32_000,
+                pricing: Some(ModelPricing {
+                    input_per_1m: 5.0,
+                    output_per_1m: 25.0,
+                    cache_creation_per_1m: None,
+                    cache_read_per_1m: None,
+                }),
+                capabilities: ModelCapabilities {
+                    vision: true,
+                    tool_use: true,
+                    streaming: true,
+                    extended_thinking: true,
+                    json_mode: false,
+                },
+            },
+            ModelInfo {
+                id: "claude-opus-4-6".to_string(),
+                provider: "anthropic".to_string(),
+                display_name: "Claude Opus 4.6".to_string(),
+                context_window: 200_000,
+                max_output_tokens: 32_000,
+                pricing: Some(ModelPricing {
+                    input_per_1m: 5.0,
+                    output_per_1m: 25.0,
+                    cache_creation_per_1m: None,
+                    cache_read_per_1m: None,
+                }),
+                capabilities: ModelCapabilities {
+                    vision: true,
+                    tool_use: true,
+                    streaming: true,
+                    extended_thinking: true,
+                    json_mode: false,
+                },
+            },
+            ModelInfo {
+                id: "claude-sonnet-4-6".to_string(),
+                provider: "anthropic".to_string(),
+                display_name: "Claude Sonnet 4.6".to_string(),
+                context_window: 200_000,
+                max_output_tokens: 64_000,
+                pricing: Some(ModelPricing {
+                    input_per_1m: 3.0,
+                    output_per_1m: 15.0,
+                    cache_creation_per_1m: None,
+                    cache_read_per_1m: None,
+                }),
+                capabilities: ModelCapabilities {
+                    vision: true,
+                    tool_use: true,
+                    streaming: true,
+                    extended_thinking: true,
+                    json_mode: false,
+                },
+            },
+            ModelInfo {
+                id: "claude-haiku-4-5".to_string(),
+                provider: "anthropic".to_string(),
+                display_name: "Claude Haiku 4.5".to_string(),
+                context_window: 200_000,
+                max_output_tokens: 8192,
+                pricing: Some(ModelPricing {
+                    input_per_1m: 1.0,
+                    output_per_1m: 5.0,
+                    cache_creation_per_1m: None,
+                    cache_read_per_1m: None,
+                }),
+                capabilities: ModelCapabilities {
+                    vision: true,
+                    tool_use: true,
+                    streaming: true,
+                    extended_thinking: true,
                     json_mode: false,
                 },
             },

@@ -216,7 +216,7 @@ pub async fn run(args: AgentArgs) -> anyhow::Result<()> {
             };
 
             // Resolve provider type from model string
-            let model_str = config.model.as_deref().unwrap_or("anthropic/claude-3-7-sonnet-latest");
+            let model_str = config.model.as_deref().unwrap_or("anthropic/claude-sonnet-5");
             let provider_prefix = model_str.split('/').next().unwrap_or("anthropic");
 
             // Attempt to get API key from environment or secret store
@@ -226,6 +226,7 @@ pub async fn run(args: AgentArgs) -> anyhow::Result<()> {
                     "google" => "google_api_key",
                     "openrouter" => "openrouter_api_key",
                     "qwen" => "qwen_api_key",
+                    "poolside" => "poolside_api_key",
                     _ => "anthropic_api_key",
                 };
 
@@ -234,6 +235,7 @@ pub async fn run(args: AgentArgs) -> anyhow::Result<()> {
                     "google" => "GOOGLE_API_KEY",
                     "openrouter" => "OPENROUTER_API_KEY",
                     "qwen" => "DASHSCOPE_API_KEY",
+                    "poolside" => "POOLSIDE_API_KEY",
                     _ => "ANTHROPIC_API_KEY",
                 };
 
@@ -256,6 +258,7 @@ pub async fn run(args: AgentArgs) -> anyhow::Result<()> {
                 "openai" => Arc::new(smartassist_providers::openai::OpenAIProvider::new(api_key)?.with_default_model(model_str)),
                 "qwen" => Arc::new(smartassist_providers::qwen::QwenProvider::new(api_key)?.with_default_model(model_str)),
                 "openrouter" => Arc::new(smartassist_providers::openrouter::OpenRouterProvider::new(api_key)?.with_default_model(model_str)),
+                "poolside" => Arc::new(smartassist_providers::poolside::PoolsideProvider::new(api_key)?.with_default_model(model_str)),
                 _ => Arc::new(smartassist_providers::anthropic::AnthropicProvider::new(api_key)?.with_default_model(model_str)),
             };
 

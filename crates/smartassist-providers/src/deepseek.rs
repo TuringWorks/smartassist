@@ -1,13 +1,13 @@
 //! DeepSeek API provider.
 //!
-//! Supports DeepSeek-V3, DeepSeek-V2, DeepSeek Coder, and DeepSeek Chat models.
+//! Supports DeepSeek-V4 Pro and DeepSeek-V4 Flash.
 //! API is OpenAI-compatible.
 //! See: https://platform.deepseek.com/docs
 
 use crate::{
     ChatOptions, ChatResponse, CompletionStream, ContentBlock, Message, MessageContent,
-    ModelCapabilities, ModelInfo, Provider, ProviderCapabilities, ProviderError, Result, Role,
-    StopReason, StreamEvent, TokenCount, TokenUsage, ToolDefinition,
+    ModelCapabilities, ModelInfo, ModelPricing, Provider, ProviderCapabilities, ProviderError,
+    Result, Role, StopReason, StreamEvent, TokenCount, TokenUsage, ToolDefinition,
 };
 use async_trait::async_trait;
 use reqwest::Client;
@@ -50,7 +50,7 @@ impl DeepSeekProvider {
             client,
             api_key: SecretString::new(api_key.into()),
             api_base: DEFAULT_API_BASE.to_string(),
-            default_model: "deepseek-chat".to_string(),
+            default_model: "deepseek-v4-flash".to_string(),
         })
     }
 
@@ -215,11 +215,33 @@ impl Provider for DeepSeekProvider {
     }
 
     async fn list_models(&self) -> Result<Vec<ModelInfo>> {
+        // deepseek-chat / deepseek-reasoner were retired 2026-07-24; DeepSeek's
+        // model-list endpoint now returns only the v4 pair.
         Ok(vec![
             ModelInfo {
-                id: "deepseek-chat".to_string(),
+                id: "deepseek-v4-pro".to_string(),
                 provider: "deepseek".to_string(),
-                display_name: "DeepSeek Chat (V3)".to_string(),
+                display_name: "DeepSeek V4 Pro".to_string(),
+                capabilities: ModelCapabilities {
+                    vision: false,
+                    tool_use: true,
+                    extended_thinking: true,
+                    streaming: true,
+                    json_mode: true,
+                },
+                context_window: 128_000,
+                max_output_tokens: 8192,
+                pricing: Some(ModelPricing {
+                    input_per_1m: 0.27,
+                    output_per_1m: 1.1,
+                    cache_creation_per_1m: None,
+                    cache_read_per_1m: None,
+                }),
+            },
+            ModelInfo {
+                id: "deepseek-v4-flash".to_string(),
+                provider: "deepseek".to_string(),
+                display_name: "DeepSeek V4 Flash".to_string(),
                 capabilities: ModelCapabilities {
                     vision: false,
                     tool_use: true,
@@ -227,24 +249,14 @@ impl Provider for DeepSeekProvider {
                     streaming: true,
                     json_mode: true,
                 },
-                context_window: 64000,
+                context_window: 64_000,
                 max_output_tokens: 4096,
-                pricing: None,
-            },
-            ModelInfo {
-                id: "deepseek-reasoner".to_string(),
-                provider: "deepseek".to_string(),
-                display_name: "DeepSeek Reasoner (R1)".to_string(),
-                capabilities: ModelCapabilities {
-                    vision: false,
-                    tool_use: false,
-                    extended_thinking: true,
-                    streaming: true,
-                    json_mode: true,
-                },
-                context_window: 64000,
-                max_output_tokens: 4096,
-                pricing: None,
+                pricing: Some(ModelPricing {
+                    input_per_1m: 0.27,
+                    output_per_1m: 1.1,
+                    cache_creation_per_1m: None,
+                    cache_read_per_1m: None,
+                }),
             },
         ])
     }

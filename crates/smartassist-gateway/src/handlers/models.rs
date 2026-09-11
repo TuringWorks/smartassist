@@ -58,22 +58,40 @@ impl ModelsListHandler {
     }
 
     /// Get list of available models.
+    ///
+    /// This is a static fallback shown when no live provider is queried.
+    /// Anthropic, DeepSeek, Zhipu, and Poolside model ids are sourced from
+    /// each provider's own `list_models()`; Ollama entries are a sample of
+    /// the current `ollama.com/library` catalog (pullable, not a claim about
+    /// what's actually installed -- `ollama.rs::list_models()` queries the
+    /// live `/api/tags` for that). Qwen/Moonshot ids are unchanged pending a
+    /// verified current source for those two providers specifically.
     fn get_available_models() -> Vec<ModelInfo> {
         vec![
-            // Anthropic models
+            // Anthropic models (newest-capability first)
             ModelInfo {
-                id: "claude-3-5-sonnet-20241022".to_string(),
-                name: "Claude 3.5 Sonnet".to_string(),
+                id: "claude-opus-5".to_string(),
+                name: "Claude Opus 5".to_string(),
                 provider: "anthropic".to_string(),
                 description: Some("Most intelligent model, best for complex tasks".to_string()),
                 context_window: Some(200000),
-                max_output_tokens: Some(8192),
+                max_output_tokens: Some(64000),
                 supports_vision: true,
                 supports_tools: true,
             },
             ModelInfo {
-                id: "claude-3-5-haiku-20241022".to_string(),
-                name: "Claude 3.5 Haiku".to_string(),
+                id: "claude-sonnet-5".to_string(),
+                name: "Claude Sonnet 5".to_string(),
+                provider: "anthropic".to_string(),
+                description: Some("Balanced model for most tasks".to_string()),
+                context_window: Some(200000),
+                max_output_tokens: Some(64000),
+                supports_vision: true,
+                supports_tools: true,
+            },
+            ModelInfo {
+                id: "claude-haiku-4-5".to_string(),
+                name: "Claude Haiku 4.5".to_string(),
                 provider: "anthropic".to_string(),
                 description: Some("Fastest model, good for simple tasks".to_string()),
                 context_window: Some(200000),
@@ -81,53 +99,74 @@ impl ModelsListHandler {
                 supports_vision: true,
                 supports_tools: true,
             },
-            ModelInfo {
-                id: "claude-3-opus-20240229".to_string(),
-                name: "Claude 3 Opus".to_string(),
-                provider: "anthropic".to_string(),
-                description: Some("Powerful model for nuanced tasks".to_string()),
-                context_window: Some(200000),
-                max_output_tokens: Some(4096),
-                supports_vision: true,
-                supports_tools: true,
-            },
             // OpenAI models
             ModelInfo {
-                id: "gpt-4o".to_string(),
-                name: "GPT-4o".to_string(),
+                id: "gpt-5.6-sol".to_string(),
+                name: "GPT-5.6 Sol".to_string(),
                 provider: "openai".to_string(),
-                description: Some("Latest GPT-4 model with vision".to_string()),
-                context_window: Some(128000),
-                max_output_tokens: Some(4096),
+                description: Some("OpenAI's flagship reasoning model".to_string()),
+                context_window: Some(400000),
+                max_output_tokens: Some(128000),
                 supports_vision: true,
                 supports_tools: true,
             },
             ModelInfo {
-                id: "gpt-4-turbo".to_string(),
-                name: "GPT-4 Turbo".to_string(),
+                id: "gpt-5.6-terra".to_string(),
+                name: "GPT-5.6 Terra".to_string(),
                 provider: "openai".to_string(),
-                description: Some("GPT-4 Turbo with 128k context".to_string()),
+                description: Some("Balanced GPT-5.6 tier".to_string()),
+                context_window: Some(400000),
+                max_output_tokens: Some(64000),
+                supports_vision: true,
+                supports_tools: true,
+            },
+            ModelInfo {
+                id: "gpt-5.6-luna".to_string(),
+                name: "GPT-5.6 Luna".to_string(),
+                provider: "openai".to_string(),
+                description: Some("Fast, low-cost GPT-5.6 tier".to_string()),
                 context_window: Some(128000),
-                max_output_tokens: Some(4096),
+                max_output_tokens: Some(32000),
+                supports_vision: true,
+                supports_tools: true,
+            },
+            // Google Gemini models
+            ModelInfo {
+                id: "gemini-3.6-flash".to_string(),
+                name: "Gemini 3.6 Flash".to_string(),
+                provider: "google".to_string(),
+                description: Some("Google's fast, current-generation model".to_string()),
+                context_window: Some(1000000),
+                max_output_tokens: Some(8192),
+                supports_vision: true,
+                supports_tools: true,
+            },
+            ModelInfo {
+                id: "gemini-3.1-pro-preview".to_string(),
+                name: "Gemini 3.1 Pro".to_string(),
+                provider: "google".to_string(),
+                description: Some("Google's most capable model".to_string()),
+                context_window: Some(1000000),
+                max_output_tokens: Some(8192),
                 supports_vision: true,
                 supports_tools: true,
             },
             // DeepSeek models
             ModelInfo {
-                id: "deepseek-chat".to_string(),
-                name: "DeepSeek Chat".to_string(),
+                id: "deepseek-v4-pro".to_string(),
+                name: "DeepSeek V4 Pro".to_string(),
                 provider: "deepseek".to_string(),
-                description: Some("DeepSeek's general chat model".to_string()),
-                context_window: Some(64000),
-                max_output_tokens: Some(4096),
+                description: Some("DeepSeek's most capable model".to_string()),
+                context_window: Some(128000),
+                max_output_tokens: Some(8192),
                 supports_vision: false,
                 supports_tools: true,
             },
             ModelInfo {
-                id: "deepseek-coder".to_string(),
-                name: "DeepSeek Coder".to_string(),
+                id: "deepseek-v4-flash".to_string(),
+                name: "DeepSeek V4 Flash".to_string(),
                 provider: "deepseek".to_string(),
-                description: Some("DeepSeek's coding-specialized model".to_string()),
+                description: Some("DeepSeek's fast, low-cost model".to_string()),
                 context_window: Some(64000),
                 max_output_tokens: Some(4096),
                 supports_vision: false,
@@ -157,42 +196,64 @@ impl ModelsListHandler {
             },
             // Zhipu/GLM models
             ModelInfo {
-                id: "glm-4".to_string(),
-                name: "GLM-4".to_string(),
+                id: "glm-5.2".to_string(),
+                name: "GLM-5.2".to_string(),
                 provider: "zhipu".to_string(),
-                description: Some("Zhipu's latest GLM model".to_string()),
+                description: Some("Zhipu's latest, most capable GLM model".to_string()),
+                context_window: Some(128000),
+                max_output_tokens: Some(8192),
+                supports_vision: true,
+                supports_tools: true,
+            },
+            ModelInfo {
+                id: "glm-4.7-flash".to_string(),
+                name: "GLM-4.7 Flash".to_string(),
+                provider: "zhipu".to_string(),
+                description: Some("Zhipu's fast, low-cost model".to_string()),
+                context_window: Some(128000),
+                max_output_tokens: Some(4096),
+                supports_vision: false,
+                supports_tools: true,
+            },
+            // Poolside AI models (purpose-built coding models)
+            ModelInfo {
+                id: "poolside/laguna-s-2.1".to_string(),
+                name: "Poolside Laguna S 2.1".to_string(),
+                provider: "poolside".to_string(),
+                description: Some("Poolside's purpose-built coding model".to_string()),
+                context_window: Some(128000),
+                max_output_tokens: Some(8192),
+                supports_vision: false,
+                supports_tools: true,
+            },
+            // Local models via Ollama (pullable; live-installed models come
+            // from ollama.rs::list_models() querying /api/tags instead)
+            ModelInfo {
+                id: "llama4".to_string(),
+                name: "Llama 4".to_string(),
+                provider: "ollama".to_string(),
+                description: Some("Meta's Llama 4 (local)".to_string()),
                 context_window: Some(128000),
                 max_output_tokens: Some(4096),
                 supports_vision: false,
                 supports_tools: true,
             },
             ModelInfo {
-                id: "glm-4v".to_string(),
-                name: "GLM-4V".to_string(),
-                provider: "zhipu".to_string(),
-                description: Some("GLM-4 with vision support".to_string()),
-                context_window: Some(2000),
-                max_output_tokens: Some(1024),
-                supports_vision: true,
-                supports_tools: true,
-            },
-            // Local models via Ollama
-            ModelInfo {
-                id: "llama3.2".to_string(),
-                name: "Llama 3.2".to_string(),
+                id: "qwen3-coder".to_string(),
+                name: "Qwen3 Coder".to_string(),
                 provider: "ollama".to_string(),
-                description: Some("Meta's Llama 3.2 (local)".to_string()),
-                context_window: Some(8192),
+                description: Some("Alibaba's Qwen3 Coder (local)".to_string()),
+                context_window: Some(32000),
                 max_output_tokens: Some(4096),
                 supports_vision: false,
                 supports_tools: true,
             },
             ModelInfo {
-                id: "qwen2.5".to_string(),
-                name: "Qwen 2.5".to_string(),
+                id: "deepseek-v4-flash:cloud".to_string(),
+                name: "DeepSeek V4 Flash (Ollama Cloud)".to_string(),
                 provider: "ollama".to_string(),
-                description: Some("Alibaba's Qwen 2.5 (local)".to_string()),
-                context_window: Some(32000),
+                description: Some("Datacenter-hosted via Ollama Cloud".to_string()),
+                context_window: Some(64000),
                 max_output_tokens: Some(4096),
                 supports_vision: false,
                 supports_tools: true,
@@ -208,7 +269,7 @@ impl MethodHandler for ModelsListHandler {
 
         let response = ModelsListResponse {
             models: Self::get_available_models(),
-            default_model: Some("claude-3-5-sonnet-20241022".to_string()),
+            default_model: Some("claude-sonnet-5".to_string()),
         };
 
         serde_json::to_value(response).map_err(|e| GatewayError::Internal(e.to_string()))

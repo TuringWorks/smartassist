@@ -271,7 +271,7 @@ impl CompressionEngine {
             .config
             .summary_model
             .as_deref()
-            .unwrap_or("claude-sonnet-4-20250514");
+            .unwrap_or("claude-sonnet-5");
 
         let options = smartassist_core::types::ChatOptions::with_max_tokens(1024);
 

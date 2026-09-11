@@ -39,3 +39,6 @@ pub use smartassist_providers::qwen::QwenProvider;
 
 #[cfg(feature = "zhipu")]
 pub use smartassist_providers::zhipu::ZhipuProvider;
+
+#[cfg(feature = "poolside")]
+pub use smartassist_providers::poolside::PoolsideProvider;

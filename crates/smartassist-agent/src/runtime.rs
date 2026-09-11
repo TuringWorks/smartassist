@@ -208,7 +208,7 @@ impl AgentRuntime {
             // Signal start
             yield Ok(StreamEvent::Start {
                 id: uuid::Uuid::new_v4().to_string(),
-                model: self.config.model.clone().unwrap_or_else(|| "claude-sonnet-4-20250514".to_string()),
+                model: self.config.model.clone().unwrap_or_else(|| "claude-sonnet-5".to_string()),
             });
 
             // Get or create session
@@ -293,7 +293,7 @@ impl AgentRuntime {
 
         let response: ChatResponse = self
             .provider
-            .chat(self.config.model.as_deref().unwrap_or("claude-sonnet-4-20250514"), &messages, Some(options))
+            .chat(self.config.model.as_deref().unwrap_or("claude-sonnet-5"), &messages, Some(options))
             .await
             .map_err(|e| crate::error::AgentError::ModelApi(e.to_string()))?;
 

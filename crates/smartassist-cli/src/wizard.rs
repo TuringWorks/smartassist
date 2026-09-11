@@ -26,6 +26,7 @@ enum Provider {
     Anthropic,
     OpenAI,
     Google,
+    Poolside,
     Ollama,
 }
 
@@ -35,6 +36,7 @@ impl Provider {
             Provider::Anthropic,
             Provider::OpenAI,
             Provider::Google,
+            Provider::Poolside,
             Provider::Ollama,
         ]
     }
@@ -44,6 +46,7 @@ impl Provider {
             Self::Anthropic => "Anthropic (Claude)",
             Self::OpenAI => "OpenAI (GPT)",
             Self::Google => "Google (Gemini)",
+            Self::Poolside => "Poolside (coding models)",
             Self::Ollama => "Ollama (Local)",
         }
     }
@@ -53,6 +56,7 @@ impl Provider {
             Self::Anthropic => "anthropic",
             Self::OpenAI => "openai",
             Self::Google => "google",
+            Self::Poolside => "poolside",
             Self::Ollama => "ollama",
         }
     }
@@ -62,6 +66,7 @@ impl Provider {
             Self::Anthropic => Some("sk-ant-"),
             Self::OpenAI => Some("sk-"),
             Self::Google => None,
+            Self::Poolside => Some("sky_"),
             Self::Ollama => None,
         }
     }
@@ -71,6 +76,7 @@ impl Provider {
             Self::Anthropic => Some("ANTHROPIC_API_KEY"),
             Self::OpenAI => Some("OPENAI_API_KEY"),
             Self::Google => Some("GOOGLE_API_KEY"),
+            Self::Poolside => Some("POOLSIDE_API_KEY"),
             Self::Ollama => None,
         }
     }
@@ -79,26 +85,28 @@ impl Provider {
     fn models(&self) -> Vec<(&str, &str)> {
         match self {
             Provider::Anthropic => vec![
-                ("claude-sonnet-4-5-20250929", "Claude Sonnet 4.5 (balanced)"),
-                ("claude-opus-4-6", "Claude Opus 4.6 (most capable)"),
-                (
-                    "claude-haiku-4-5-20251001",
-                    "Claude Haiku 4.5 (fastest)",
-                ),
+                ("claude-sonnet-5", "Claude Sonnet 5 (balanced)"),
+                ("claude-opus-5", "Claude Opus 5 (most capable)"),
+                ("claude-haiku-4-5", "Claude Haiku 4.5 (fastest)"),
             ],
             Provider::OpenAI => vec![
-                ("gpt-4o", "GPT-4o (balanced)"),
-                ("gpt-4o-mini", "GPT-4o Mini (fastest)"),
-                ("gpt-4-turbo", "GPT-4 Turbo"),
+                ("gpt-5.6-terra", "GPT-5.6 Terra (balanced)"),
+                ("gpt-5.6-luna", "GPT-5.6 Luna (fastest)"),
+                ("gpt-5.6-sol", "GPT-5.6 Sol (most capable)"),
             ],
             Provider::Google => vec![
-                ("gemini-2.0-flash", "Gemini 2.0 Flash (fast)"),
-                ("gemini-2.0-pro", "Gemini 2.0 Pro"),
+                ("gemini-3.6-flash", "Gemini 3.6 Flash (fast)"),
+                ("gemini-3.1-pro-preview", "Gemini 3.1 Pro"),
+            ],
+            Provider::Poolside => vec![
+                ("poolside/laguna-s-2.1", "Laguna S 2.1 (balanced)"),
+                ("poolside/laguna-xs-2.1", "Laguna XS 2.1 (fastest)"),
+                ("poolside/laguna-m-1", "Laguna M 1 (most capable)"),
             ],
             Provider::Ollama => vec![
-                ("llama3.2", "Llama 3.2"),
-                ("mistral", "Mistral"),
-                ("qwen2.5", "Qwen 2.5"),
+                ("llama4", "Llama 4"),
+                ("mistral-small3.2", "Mistral Small 3.2"),
+                ("qwen3-coder", "Qwen3 Coder"),
             ],
         }
     }
@@ -745,6 +753,23 @@ impl SetupWizard {
                         eprintln!(
                             "{}",
                             style("Google API key detected.").green()
+                        );
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "{} {}",
+                            style("Not configured:").yellow(),
+                            e
+                        );
+                    }
+                }
+            }
+            Provider::Poolside => {
+                match smartassist_providers::poolside::PoolsideProvider::from_env() {
+                    Ok(_p) => {
+                        eprintln!(
+                            "{}",
+                            style("Poolside API key detected.").green()
                         );
                     }
                     Err(e) => {

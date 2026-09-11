@@ -1,12 +1,13 @@
-//! Zhipu AI (GLM) API provider.
+//! Poolside AI provider.
 //!
-//! Supports GLM-4, GLM-4V, and ChatGLM models.
-//! See: https://open.bigmodel.cn/dev/api
+//! OpenAI-compatible chat completions API for Poolside's purpose-built coding
+//! models. API keys start with `sky_`. See:
+//! <https://docs.poolside.ai/get-started/supported-models>
 
 use crate::{
     ChatOptions, ChatResponse, CompletionStream, ContentBlock, Message, MessageContent,
-    ModelCapabilities, ModelInfo, Provider, ProviderCapabilities, ProviderError, Result, Role,
-    StopReason, StreamEvent, TokenCount, TokenUsage, ToolDefinition,
+    ModelCapabilities, ModelInfo, ModelPricing, Provider, ProviderCapabilities, ProviderError,
+    Result, Role, StopReason, StreamEvent, TokenCount, TokenUsage, ToolDefinition,
 };
 use async_trait::async_trait;
 use reqwest::Client;
@@ -14,11 +15,11 @@ use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
-/// Default Zhipu API base URL.
-const DEFAULT_API_BASE: &str = "https://open.bigmodel.cn/api/paas/v4";
+/// Default Poolside API base URL.
+const DEFAULT_API_BASE: &str = "https://inference.poolside.ai/v1";
 
-/// Zhipu AI (GLM) provider.
-pub struct ZhipuProvider {
+/// Poolside AI provider.
+pub struct PoolsideProvider {
     /// HTTP client.
     client: Client,
 
@@ -32,8 +33,8 @@ pub struct ZhipuProvider {
     default_model: String,
 }
 
-impl ZhipuProvider {
-    /// Create a new Zhipu provider with an API key.
+impl PoolsideProvider {
+    /// Create a new Poolside provider with an API key.
     pub fn new(api_key: impl Into<String>) -> Result<Self> {
         let api_key = api_key.into();
         if api_key.is_empty() {
@@ -49,8 +50,15 @@ impl ZhipuProvider {
             client,
             api_key: SecretString::new(api_key.into()),
             api_base: DEFAULT_API_BASE.to_string(),
-            default_model: "glm-5.2".to_string(),
+            default_model: "poolside/laguna-s-2.1".to_string(),
         })
+    }
+
+    /// Create a new provider from the `POOLSIDE_API_KEY` environment variable.
+    pub fn from_env() -> Result<Self> {
+        let api_key = std::env::var("POOLSIDE_API_KEY")
+            .map_err(|_| ProviderError::config("POOLSIDE_API_KEY environment variable not set"))?;
+        Self::new(api_key)
     }
 
     /// Set the API base URL.
@@ -65,7 +73,7 @@ impl ZhipuProvider {
         self
     }
 
-    /// Convert messages to Zhipu API format.
+    /// Convert messages to Poolside/OpenAI-compatible API format.
     fn convert_messages(&self, messages: &[Message]) -> Vec<ApiMessage> {
         messages.iter().map(|m| self.convert_message(m)).collect()
     }
@@ -80,7 +88,7 @@ impl ZhipuProvider {
         };
 
         let (content, tool_calls) = match &message.content {
-            MessageContent::Text(text) => (Some(ApiContent::Text(text.clone())), None),
+            MessageContent::Text(text) => (Some(text.clone()), None),
             MessageContent::Blocks(blocks) => {
                 let tool_calls: Vec<ApiToolCall> = blocks
                     .iter()
@@ -102,17 +110,16 @@ impl ZhipuProvider {
                     .filter_map(|block| match block {
                         ContentBlock::Text { text } => Some(text.clone()),
                         ContentBlock::ToolResult { content, .. } => Some(content.clone()),
+                        ContentBlock::Thinking { thinking } => {
+                            Some(format!("<thinking>{}</thinking>", thinking))
+                        }
                         _ => None,
                     })
                     .collect::<Vec<_>>()
                     .join("\n");
 
                 (
-                    if text.is_empty() {
-                        None
-                    } else {
-                        Some(ApiContent::Text(text))
-                    },
+                    if text.is_empty() { None } else { Some(text) },
                     if tool_calls.is_empty() {
                         None
                     } else {
@@ -145,7 +152,7 @@ impl ZhipuProvider {
             .collect()
     }
 
-    /// Parse a Zhipu API response.
+    /// Parse a Poolside API response.
     fn parse_response(&self, response: ApiResponse, model: &str) -> Result<ChatResponse> {
         let choice = response
             .choices
@@ -154,7 +161,7 @@ impl ZhipuProvider {
 
         let mut content_blocks: Vec<ContentBlock> = Vec::new();
 
-        if let Some(ApiContent::Text(text)) = &choice.message.content {
+        if let Some(text) = &choice.message.content {
             if !text.is_empty() {
                 content_blocks.push(ContentBlock::Text { text: text.clone() });
             }
@@ -176,6 +183,7 @@ impl ZhipuProvider {
             Some("stop") => StopReason::EndTurn,
             Some("length") => StopReason::MaxTokens,
             Some("tool_calls") => StopReason::ToolUse,
+            Some("content_filter") => StopReason::ContentFilter,
             _ => StopReason::EndTurn,
         };
 
@@ -208,87 +216,76 @@ impl ZhipuProvider {
 }
 
 #[async_trait]
-impl Provider for ZhipuProvider {
+impl Provider for PoolsideProvider {
     fn name(&self) -> &str {
-        "zhipu"
+        "poolside"
     }
 
     async fn list_models(&self) -> Result<Vec<ModelInfo>> {
+        // Poolside has no /models endpoint; these are documented at
+        // docs.poolside.ai/get-started/supported-models. Ids are fully
+        // qualified (`poolside/laguna-s-2.1`, not `laguna-s-2.1`) -- the API
+        // rejects the bare form.
         Ok(vec![
             ModelInfo {
-                id: "glm-5.2".to_string(),
-                provider: "zhipu".to_string(),
-                display_name: "GLM-5.2".to_string(),
-                capabilities: ModelCapabilities {
-                    vision: true,
-                    tool_use: true,
-                    extended_thinking: true,
-                    streaming: true,
-                    json_mode: true,
-                },
-                context_window: 128000,
-                max_output_tokens: 8192,
-                pricing: None,
-            },
-            ModelInfo {
-                id: "glm-5.1".to_string(),
-                provider: "zhipu".to_string(),
-                display_name: "GLM-5.1".to_string(),
-                capabilities: ModelCapabilities {
-                    vision: true,
-                    tool_use: true,
-                    extended_thinking: true,
-                    streaming: true,
-                    json_mode: true,
-                },
-                context_window: 128000,
-                max_output_tokens: 8192,
-                pricing: None,
-            },
-            ModelInfo {
-                id: "glm-5".to_string(),
-                provider: "zhipu".to_string(),
-                display_name: "GLM-5".to_string(),
-                capabilities: ModelCapabilities {
-                    vision: true,
-                    tool_use: true,
-                    extended_thinking: true,
-                    streaming: true,
-                    json_mode: true,
-                },
-                context_window: 128000,
-                max_output_tokens: 8192,
-                pricing: None,
-            },
-            ModelInfo {
-                id: "glm-4.7".to_string(),
-                provider: "zhipu".to_string(),
-                display_name: "GLM-4.7".to_string(),
-                capabilities: ModelCapabilities {
-                    vision: true,
-                    tool_use: true,
-                    extended_thinking: false,
-                    streaming: true,
-                    json_mode: true,
-                },
-                context_window: 128000,
-                max_output_tokens: 4096,
-                pricing: None,
-            },
-            ModelInfo {
-                id: "glm-4.7-flash".to_string(),
-                provider: "zhipu".to_string(),
-                display_name: "GLM-4.7 Flash".to_string(),
+                id: "poolside/laguna-s-2.1".to_string(),
+                provider: "poolside".to_string(),
+                display_name: "Poolside Laguna S 2.1".to_string(),
                 capabilities: ModelCapabilities {
                     vision: false,
                     tool_use: true,
                     extended_thinking: false,
                     streaming: true,
-                    json_mode: true,
+                    json_mode: false,
                 },
-                context_window: 128000,
-                max_output_tokens: 4096,
-                pricing: None,
+                context_window: 128_000,
+                max_output_tokens: 8192,
+                pricing: Some(ModelPricing {
+                    input_per_1m: 1.0,
+                    output_per_1m: 4.0,
+                    cache_creation_per_1m: None,
+                    cache_read_per_1m: None,
+                }),
+            },
+            ModelInfo {
+                id: "poolside/laguna-xs-2.1".to_string(),
+                provider: "poolside".to_string(),
+                display_name: "Poolside Laguna XS 2.1".to_string(),
+                capabilities: ModelCapabilities {
+                    vision: false,
+                    tool_use: true,
+                    extended_thinking: false,
+                    streaming: true,
+                    json_mode: false,
+                },
+                context_window: 128_000,
+                max_output_tokens: 8192,
+                pricing: Some(ModelPricing {
+                    input_per_1m: 1.0,
+                    output_per_1m: 4.0,
+                    cache_creation_per_1m: None,
+                    cache_read_per_1m: None,
+                }),
+            },
+            ModelInfo {
+                id: "poolside/laguna-m-1".to_string(),
+                provider: "poolside".to_string(),
+                display_name: "Poolside Laguna M 1".to_string(),
+                capabilities: ModelCapabilities {
+                    vision: false,
+                    tool_use: true,
+                    extended_thinking: false,
+                    streaming: true,
+                    json_mode: false,
+                },
+                context_window: 128_000,
+                max_output_tokens: 8192,
+                pricing: Some(ModelPricing {
+                    input_per_1m: 1.0,
+                    output_per_1m: 4.0,
+                    cache_creation_per_1m: None,
+                    cache_read_per_1m: None,
+                }),
             },
         ])
     }
@@ -315,7 +312,7 @@ impl Provider for ZhipuProvider {
             stream: false,
         };
 
-        debug!("Sending request to Zhipu API (model: {})", model);
+        debug!("Sending request to Poolside API (model: {})", model);
 
         let response = self
             .client
@@ -353,7 +350,7 @@ impl Provider for ZhipuProvider {
         messages: &[Message],
         options: Option<ChatOptions>,
     ) -> Result<CompletionStream> {
-        // Streaming not yet implemented for Zhipu
+        // Streaming not yet implemented for Poolside.
         let response = self.chat(model, messages, options).await?;
         Ok(Box::pin(futures::stream::once(async move {
             Ok(StreamEvent::End {
@@ -365,7 +362,7 @@ impl Provider for ZhipuProvider {
 
     async fn count_tokens(&self, _model: &str, _messages: &[Message]) -> Result<TokenCount> {
         Err(ProviderError::internal(
-            "Token counting not supported by Zhipu",
+            "Token counting not supported by Poolside",
         ))
     }
 
@@ -373,15 +370,15 @@ impl Provider for ZhipuProvider {
         ProviderCapabilities {
             streaming: false,
             tools: true,
-            vision: true,
+            vision: false,
             system_messages: true,
-            max_context: Some(128000),
-            max_output: Some(4096),
+            max_context: Some(128_000),
+            max_output: Some(8192),
         }
     }
 }
 
-// API types
+// API types (OpenAI-compatible format)
 
 #[derive(Debug, Serialize)]
 struct ApiRequest {
@@ -400,30 +397,11 @@ struct ApiRequest {
 struct ApiMessage {
     role: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    content: Option<ApiContent>,
+    content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_calls: Option<Vec<ApiToolCall>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_call_id: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(untagged)]
-enum ApiContent {
-    Text(String),
-    Parts(Vec<ApiContentPart>),
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-enum ApiContentPart {
-    Text { text: String },
-    Image { image_url: ApiImageUrl },
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct ApiImageUrl {
-    url: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -471,7 +449,7 @@ struct ApiChoice {
 
 #[derive(Debug, Deserialize)]
 struct ApiResponseMessage {
-    content: Option<ApiContent>,
+    content: Option<String>,
     #[serde(default)]
     tool_calls: Option<Vec<ApiToolCall>>,
 }
@@ -488,12 +466,28 @@ mod tests {
 
     #[test]
     fn test_provider_creation() {
-        let provider = ZhipuProvider::new("test-key").unwrap();
-        assert_eq!(provider.name(), "zhipu");
+        let provider = PoolsideProvider::new("sky_test_key").unwrap();
+        assert_eq!(provider.name(), "poolside");
     }
 
     #[test]
     fn test_empty_key_rejected() {
-        assert!(ZhipuProvider::new("").is_err());
+        assert!(PoolsideProvider::new("").is_err());
+    }
+
+    #[tokio::test]
+    async fn test_list_models() {
+        let provider = PoolsideProvider::new("sky_test_key").unwrap();
+        let models = provider.list_models().await.unwrap();
+        assert_eq!(models.len(), 3);
+        assert!(models.iter().all(|m| m.id.starts_with("poolside/")));
+    }
+
+    #[test]
+    fn test_capabilities() {
+        let provider = PoolsideProvider::new("sky_test_key").unwrap();
+        let caps = provider.capabilities();
+        assert!(caps.tools);
+        assert!(!caps.vision);
     }
 }

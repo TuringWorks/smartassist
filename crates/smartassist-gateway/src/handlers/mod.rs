@@ -530,7 +530,7 @@ impl Default for HandlerContext {
             sessions: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
             active_channels: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             provider: None,
-            default_model: "claude-sonnet-4-20250514".to_string(),
+            default_model: "claude-sonnet-5".to_string(),
             approval_queue: Arc::new(ApprovalQueue::new()),
             cron_scheduler: Arc::new(smartassist_cron::Scheduler::new(
                 Arc::new(smartassist_cron::MemoryJobStore::new()),
@@ -676,7 +676,7 @@ mod tests {
         assert!(ctx.credential_pool.is_none());
         assert!(ctx.learning_store.is_none());
         assert!(ctx.learning_context.is_none());
-        assert_eq!(ctx.default_model, "claude-sonnet-4-20250514");
+        assert_eq!(ctx.default_model, "claude-sonnet-5");
     }
 
     #[test]

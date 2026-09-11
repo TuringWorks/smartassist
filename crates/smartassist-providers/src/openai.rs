@@ -55,7 +55,7 @@ impl OpenAIProvider {
             api_key: SecretString::new(api_key.into()),
             api_base: DEFAULT_API_BASE.to_string(),
             organization: None,
-            default_model: "gpt-4o".to_string(),
+            default_model: "gpt-5.6-terra".to_string(),
         })
     }
 
@@ -296,6 +296,21 @@ impl Provider for OpenAIProvider {
             })
             .map(|m| {
                 let (context_window, max_output) = match m.id.as_str() {
+                    // Current GPT-5.6/5.5/5.4/5.3 family. Context/output
+                    // figures are estimates (OpenAI's /models endpoint does
+                    // not report them) pending confirmed metadata.
+                    "gpt-5.6-sol" => (400_000, 128_000),
+                    "gpt-5.6-terra" => (400_000, 64_000),
+                    "gpt-5.6-luna" => (128_000, 32_000),
+                    "gpt-5.5-pro" => (400_000, 128_000),
+                    "gpt-5.5" => (400_000, 64_000),
+                    "gpt-5.4" => (256_000, 64_000),
+                    "gpt-5.4-mini" => (128_000, 32_000),
+                    "gpt-5.3-codex" => (256_000, 64_000),
+                    "gpt-5.3-chat" => (128_000, 32_000),
+                    // Prior generation, still Active on the API.
+                    "gpt-4.1" => (1_047_576, 32_768),
+                    "gpt-4.1-mini" => (1_047_576, 32_768),
                     "gpt-4o" | "gpt-4o-2024-08-06" => (128_000, 16_384),
                     "gpt-4o-mini" | "gpt-4o-mini-2024-07-18" => (128_000, 16_384),
                     "gpt-4-turbo" | "gpt-4-turbo-2024-04-09" => (128_000, 4_096),

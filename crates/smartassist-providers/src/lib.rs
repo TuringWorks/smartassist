@@ -18,7 +18,7 @@
 //!         Message::user("Hello, Claude!"),
 //!     ];
 //!
-//!     let response = provider.chat("claude-sonnet-4-20250514", &messages, None).await?;
+//!     let response = provider.chat("claude-sonnet-5", &messages, None).await?;
 //!     println!("Response: {}", response.to_text());
 //!
 //!     Ok(())
@@ -87,6 +87,9 @@ pub mod qwen;
 
 #[cfg(feature = "zhipu")]
 pub mod zhipu;
+
+#[cfg(feature = "poolside")]
+pub mod poolside;
 
 pub mod media;
 

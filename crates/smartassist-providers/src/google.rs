@@ -51,7 +51,7 @@ impl GoogleProvider {
             client,
             api_key: SecretString::new(api_key.into()),
             api_base: DEFAULT_API_BASE.to_string(),
-            default_model: "gemini-2.0-flash".to_string(),
+            default_model: "gemini-3.6-flash".to_string(),
         })
     }
 

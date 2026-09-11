@@ -56,7 +56,7 @@ impl OpenRouterProvider {
             client,
             api_key: SecretString::new(api_key.into()),
             api_base: DEFAULT_API_BASE.to_string(),
-            default_model: "anthropic/claude-3.5-sonnet".to_string(),
+            default_model: "anthropic/claude-sonnet-5".to_string(),
             site_url: None,
             site_name: None,
         })
@@ -248,22 +248,72 @@ impl Provider for OpenRouterProvider {
     }
 
     async fn list_models(&self) -> Result<Vec<ModelInfo>> {
-        // OpenRouter routes to many providers, return common ones
-        Ok(vec![ModelInfo {
-            id: "anthropic/claude-3.5-sonnet".to_string(),
-            provider: "openrouter".to_string(),
-            display_name: "Claude 3.5 Sonnet (via OpenRouter)".to_string(),
-            capabilities: ModelCapabilities {
-                vision: true,
-                tool_use: true,
-                extended_thinking: false,
-                streaming: true,
-                json_mode: true,
-            },
-            context_window: 200000,
-            max_output_tokens: 8192,
-            pricing: None,
-        }])
+        // OpenRouter routes to many providers; this is a starting list of
+        // commonly used ones, verified against the live
+        // openrouter.ai/api/v1/models catalog. Pricing varies per model and
+        // is not modeled here — callers should check OpenRouter's own
+        // pricing for the selected model.
+        let entries: &[(&str, &str, bool)] = &[
+            ("moonshotai/kimi-k3", "Kimi K3 (via OpenRouter)", false),
+            (
+                "moonshotai/kimi-k2.7-code",
+                "Kimi K2.7 Code (via OpenRouter)",
+                false,
+            ),
+            ("moonshotai/kimi-k2.6", "Kimi K2.6 (via OpenRouter)", false),
+            ("z-ai/glm-5.2", "GLM-5.2 (via OpenRouter)", true),
+            ("qwen/qwen3.8-max", "Qwen3.8 Max (via OpenRouter)", false),
+            (
+                "deepseek/deepseek-v4-pro",
+                "DeepSeek V4 Pro (via OpenRouter)",
+                false,
+            ),
+            (
+                "minimax/minimax-m3",
+                "MiniMax M3 (via OpenRouter)",
+                false,
+            ),
+            ("x-ai/grok-4.5", "Grok 4.5 (via OpenRouter)", false),
+            (
+                "anthropic/claude-opus-5",
+                "Claude Opus 5 (via OpenRouter)",
+                true,
+            ),
+            (
+                "anthropic/claude-sonnet-5",
+                "Claude Sonnet 5 (via OpenRouter)",
+                true,
+            ),
+            (
+                "openai/gpt-5.6-sol",
+                "GPT-5.6 Sol (via OpenRouter)",
+                true,
+            ),
+            (
+                "google/gemini-3.6-flash",
+                "Gemini 3.6 Flash (via OpenRouter)",
+                true,
+            ),
+        ];
+
+        Ok(entries
+            .iter()
+            .map(|(id, display_name, vision)| ModelInfo {
+                id: id.to_string(),
+                provider: "openrouter".to_string(),
+                display_name: display_name.to_string(),
+                capabilities: ModelCapabilities {
+                    vision: *vision,
+                    tool_use: true,
+                    extended_thinking: false,
+                    streaming: true,
+                    json_mode: true,
+                },
+                context_window: 200000,
+                max_output_tokens: 8192,
+                pricing: None,
+            })
+            .collect())
     }
 
     async fn chat(
