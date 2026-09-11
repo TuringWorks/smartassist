@@ -401,7 +401,10 @@ impl ChannelSender for TelegramChannel {
         for attachment in attachments {
             let input_file = match &attachment.source {
                 crate::attachment::AttachmentSource::FileId(id) => InputFile::file_id(id.clone()),
-                crate::attachment::AttachmentSource::Url(url) => InputFile::url(url.parse().unwrap()),
+                crate::attachment::AttachmentSource::Url(url) => InputFile::url(
+                    url.parse()
+                        .map_err(|e: url::ParseError| ChannelError::InvalidMessage(e.to_string()))?,
+                ),
                 crate::attachment::AttachmentSource::Bytes(bytes) => {
                     InputFile::memory(bytes.to_vec()).file_name(attachment.filename.clone())
                 }
