@@ -355,7 +355,7 @@ mod tests {
         assert_eq!(pool.available_count().await, 1);
 
         let key = pool.get_key().await.unwrap();
-        assert_eq!(key.expose_secret(), &"sk-test-123");
+        assert_eq!(key.expose_secret(), "sk-test-123");
     }
 
     #[tokio::test]
@@ -369,13 +369,13 @@ mod tests {
         let k2 = pool.get_key().await.unwrap();
         let k3 = pool.get_key().await.unwrap();
 
-        assert_eq!(k1.expose_secret(), &"key-1");
-        assert_eq!(k2.expose_secret(), &"key-2");
-        assert_eq!(k3.expose_secret(), &"key-3");
+        assert_eq!(k1.expose_secret(), "key-1");
+        assert_eq!(k2.expose_secret(), "key-2");
+        assert_eq!(k3.expose_secret(), "key-3");
 
         // Should cycle back
         let k4 = pool.get_key().await.unwrap();
-        assert_eq!(k4.expose_secret(), &"key-1");
+        assert_eq!(k4.expose_secret(), "key-1");
     }
 
     #[tokio::test]
@@ -389,7 +389,7 @@ mod tests {
 
         // Should skip key-1 and use key-2
         let key = pool.get_key().await.unwrap();
-        assert_eq!(key.expose_secret(), &"key-2");
+        assert_eq!(key.expose_secret(), "key-2");
 
         assert_eq!(pool.available_count().await, 1);
     }
@@ -402,7 +402,7 @@ mod tests {
         pool.report_rate_limit(Duration::from_secs(30)).await;
 
         let key = pool.get_key().await.unwrap();
-        assert_eq!(key.expose_secret(), &"key-2");
+        assert_eq!(key.expose_secret(), "key-2");
     }
 
     #[tokio::test]
@@ -432,7 +432,7 @@ mod tests {
 
         // key-1 is revoked, should use key-2
         let key = pool.get_key().await.unwrap();
-        assert_eq!(key.expose_secret(), &"key-2");
+        assert_eq!(key.expose_secret(), "key-2");
     }
 
     #[tokio::test]
@@ -445,10 +445,10 @@ mod tests {
         manager.register("openai", pool2).await;
 
         let key = manager.get_key("anthropic").await.unwrap();
-        assert_eq!(key.expose_secret(), &"sk-ant-123");
+        assert_eq!(key.expose_secret(), "sk-ant-123");
 
         let key = manager.get_key("openai").await.unwrap();
-        assert_eq!(key.expose_secret(), &"sk-oai-456");
+        assert_eq!(key.expose_secret(), "sk-oai-456");
 
         let providers = manager.providers().await;
         assert_eq!(providers.len(), 2);

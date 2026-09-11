@@ -19,12 +19,12 @@ use crate::Result;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use futures::{SinkExt, StreamExt};
+use serde::{Deserialize, Serialize};
 use smartassist_core::types::{
     ChannelCapabilities, ChannelFeatures, ChannelHealth, ChannelLimits, ChatInfo, ChatType,
     HealthStatus, InboundMessage, MediaCapabilities, MessageId, MessageTarget, OutboundMessage,
     SenderInfo,
 };
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -150,16 +150,11 @@ pub enum OutboundWebMessage {
         timestamp: String,
     },
     /// Typing indicator.
-    Typing {
-        target: String,
-        timestamp: String,
-    },
+    Typing { target: String, timestamp: String },
     /// Pong response.
     Pong,
     /// Error message.
-    Error {
-        message: String,
-    },
+    Error { message: String },
 }
 
 impl std::fmt::Debug for WebChannel {
@@ -208,7 +203,10 @@ impl WebChannel {
     }
 
     /// Broadcast a message to all connected clients.
-    pub fn broadcast(&self, message: &str) -> std::result::Result<usize, broadcast::error::SendError<String>> {
+    pub fn broadcast(
+        &self,
+        message: &str,
+    ) -> std::result::Result<usize, broadcast::error::SendError<String>> {
         self.broadcast_tx.send(message.to_string())
     }
 }
@@ -268,8 +266,8 @@ impl ChannelSender for WebChannel {
             timestamp: Utc::now().to_rfc3339(),
         };
 
-        let json = serde_json::to_string(&payload)
-            .map_err(|e| ChannelError::Internal(e.to_string()))?;
+        let json =
+            serde_json::to_string(&payload).map_err(|e| ChannelError::Internal(e.to_string()))?;
 
         let _ = self.broadcast_tx.send(json);
 
@@ -297,8 +295,8 @@ impl ChannelSender for WebChannel {
             timestamp: Utc::now().to_rfc3339(),
         };
 
-        let json = serde_json::to_string(&payload)
-            .map_err(|e| ChannelError::Internal(e.to_string()))?;
+        let json =
+            serde_json::to_string(&payload).map_err(|e| ChannelError::Internal(e.to_string()))?;
 
         let _ = self.broadcast_tx.send(json);
         Ok(())
@@ -311,8 +309,8 @@ impl ChannelSender for WebChannel {
             timestamp: Utc::now().to_rfc3339(),
         };
 
-        let json = serde_json::to_string(&payload)
-            .map_err(|e| ChannelError::Internal(e.to_string()))?;
+        let json =
+            serde_json::to_string(&payload).map_err(|e| ChannelError::Internal(e.to_string()))?;
 
         let _ = self.broadcast_tx.send(json);
         Ok(())
@@ -326,8 +324,8 @@ impl ChannelSender for WebChannel {
             timestamp: Utc::now().to_rfc3339(),
         };
 
-        let json = serde_json::to_string(&payload)
-            .map_err(|e| ChannelError::Internal(e.to_string()))?;
+        let json =
+            serde_json::to_string(&payload).map_err(|e| ChannelError::Internal(e.to_string()))?;
 
         let _ = self.broadcast_tx.send(json);
         Ok(())
@@ -341,8 +339,8 @@ impl ChannelSender for WebChannel {
             timestamp: Utc::now().to_rfc3339(),
         };
 
-        let json = serde_json::to_string(&payload)
-            .map_err(|e| ChannelError::Internal(e.to_string()))?;
+        let json =
+            serde_json::to_string(&payload).map_err(|e| ChannelError::Internal(e.to_string()))?;
 
         let _ = self.broadcast_tx.send(json);
         Ok(())
@@ -354,8 +352,8 @@ impl ChannelSender for WebChannel {
             timestamp: Utc::now().to_rfc3339(),
         };
 
-        let json = serde_json::to_string(&payload)
-            .map_err(|e| ChannelError::Internal(e.to_string()))?;
+        let json =
+            serde_json::to_string(&payload).map_err(|e| ChannelError::Internal(e.to_string()))?;
 
         let _ = self.broadcast_tx.send(json);
         Ok(())
@@ -378,7 +376,10 @@ impl ChannelReceiver for WebChannel {
 
         // Parse bind address
         let addr: SocketAddr = self.bind_address.parse().map_err(|e| {
-            ChannelError::channel("web", format!("Invalid bind address '{}': {}", self.bind_address, e))
+            ChannelError::channel(
+                "web",
+                format!("Invalid bind address '{}': {}", self.bind_address, e),
+            )
         })?;
 
         // Start TCP listener
@@ -655,7 +656,7 @@ async fn handle_connection(
                                             error: None,
                                         };
                                         let json = serde_json::to_string(&response)?;
-                                        ws_sink.send(WsMessage::Text(json)).await?;
+                                        ws_sink.send(WsMessage::Text(json.into())).await?;
 
                                         info!("Client {} authenticated as '{}'", client_id, name.unwrap_or_default());
                                     }
@@ -707,7 +708,7 @@ async fn handle_connection(
                                     WebSocketMessage::Ping => {
                                         let response = OutboundWebMessage::Pong;
                                         let json = serde_json::to_string(&response)?;
-                                        ws_sink.send(WsMessage::Text(json)).await?;
+                                        ws_sink.send(WsMessage::Text(json.into())).await?;
                                     }
                                     WebSocketMessage::Pong => {
                                         // Client responded to our ping
@@ -723,7 +724,7 @@ async fn handle_connection(
                                     message: format!("Invalid message format: {}", e),
                                 };
                                 let json = serde_json::to_string(&response)?;
-                                ws_sink.send(WsMessage::Text(json)).await?;
+                                ws_sink.send(WsMessage::Text(json.into())).await?;
                             }
                         }
                     }
@@ -758,7 +759,7 @@ async fn handle_connection(
             result = broadcast_rx.recv() => {
                 match result {
                     Ok(msg) => {
-                        if let Err(e) = ws_sink.send(WsMessage::Text(msg)).await {
+                        if let Err(e) = ws_sink.send(WsMessage::Text(msg.into())).await {
                             warn!("Failed to send to {}: {}", client_id, e);
                             break;
                         }
@@ -840,7 +841,11 @@ mod tests {
         let auth_json = r#"{"type":"auth","client_id":"user123","name":"Test User","token":null}"#;
         let parsed: WebSocketMessage = serde_json::from_str(auth_json).unwrap();
         match parsed {
-            WebSocketMessage::Auth { client_id, name, token } => {
+            WebSocketMessage::Auth {
+                client_id,
+                name,
+                token,
+            } => {
                 assert_eq!(client_id, "user123");
                 assert_eq!(name, Some("Test User".to_string()));
                 assert!(token.is_none());

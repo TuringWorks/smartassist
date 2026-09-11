@@ -17,15 +17,15 @@ use crate::traits::{
 use crate::Result;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
+use reqwest::Client;
+use serde::{Deserialize, Serialize};
+use sha2::Sha256;
 use smartassist_core::types::{
     ChannelCapabilities, ChannelFeatures, ChannelHealth, ChannelLimits, ChatInfo, ChatType,
     HealthStatus, InboundMessage, MediaAttachment, MediaCapabilities, MediaType, MessageId,
     MessageTarget, OutboundMessage, SenderInfo,
 };
-use reqwest::Client;
-use serde::{Deserialize, Serialize};
-use sha2::Sha256;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 use tracing::{debug, info, warn};
@@ -245,10 +245,7 @@ impl LineChannel {
                 id.clone(),
             ),
             LineMessage::Location {
-                id,
-                title,
-                address,
-                ..
+                id, title, address, ..
             } => (format!("{}\n{}", title, address), vec![], id.clone()),
             LineMessage::Sticker {
                 id,
@@ -261,8 +258,8 @@ impl LineChannel {
             ),
         };
 
-        let timestamp = DateTime::from_timestamp_millis(event.timestamp as i64)
-            .unwrap_or_else(Utc::now);
+        let timestamp =
+            DateTime::from_timestamp_millis(event.timestamp as i64).unwrap_or_else(Utc::now);
 
         InboundMessage {
             id: MessageId::new(message_id),
@@ -293,11 +290,7 @@ impl LineChannel {
     }
 
     /// Send a reply message using reply token.
-    pub async fn reply(
-        &self,
-        reply_token: &str,
-        messages: Vec<LineOutboundMessage>,
-    ) -> Result<()> {
+    pub async fn reply(&self, reply_token: &str, messages: Vec<LineOutboundMessage>) -> Result<()> {
         let body = serde_json::json!({
             "replyToken": reply_token,
             "messages": messages,
@@ -429,10 +422,7 @@ impl LineChannel {
                     _ => {
                         // For documents, send as text with URL
                         messages.push(LineOutboundMessage::Text {
-                            text: format!(
-                                "[File: {}]",
-                                media.filename.as_deref().unwrap_or(&url)
-                            ),
+                            text: format!("[File: {}]", media.filename.as_deref().unwrap_or(&url)),
                         });
                     }
                 }
@@ -912,7 +902,10 @@ pub enum LineTemplate {
         actions: Vec<LineAction>,
     },
     #[serde(rename = "confirm")]
-    Confirm { text: String, actions: Vec<LineAction> },
+    Confirm {
+        text: String,
+        actions: Vec<LineAction>,
+    },
     #[serde(rename = "carousel")]
     Carousel { columns: Vec<CarouselColumn> },
 }
@@ -973,9 +966,15 @@ impl ChannelFactory for LineChannelFactory {
             .options
             .get("channel_secret")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| ChannelError::Config("Missing channel_secret in LINE config".to_string()))?
+            .ok_or_else(|| {
+                ChannelError::Config("Missing channel_secret in LINE config".to_string())
+            })?
             .to_string();
-        Ok(Box::new(LineChannel::from_config(config, access_token, channel_secret)))
+        Ok(Box::new(LineChannel::from_config(
+            config,
+            access_token,
+            channel_secret,
+        )))
     }
 
     fn channel_type(&self) -> &str {

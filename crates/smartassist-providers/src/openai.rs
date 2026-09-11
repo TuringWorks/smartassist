@@ -52,7 +52,7 @@ impl OpenAIProvider {
 
         Ok(Self {
             client,
-            api_key: SecretString::new(api_key),
+            api_key: SecretString::new(api_key.into()),
             api_base: DEFAULT_API_BASE.to_string(),
             organization: None,
             default_model: "gpt-4o".to_string(),
@@ -107,10 +107,7 @@ impl OpenAIProvider {
                             }
                             ContentBlock::Image { source } => {
                                 let url = if source.source_type == ImageSourceType::Base64 {
-                                    format!(
-                                        "data:{};base64,{}",
-                                        source.media_type, source.data
-                                    )
+                                    format!("data:{};base64,{}", source.media_type, source.data)
                                 } else {
                                     source.data.clone()
                                 };
@@ -118,7 +115,11 @@ impl OpenAIProvider {
                                     image_url: ImageUrl { url },
                                 });
                             }
-                            ContentBlock::ToolResult { tool_use_id, content: result_content, .. } => {
+                            ContentBlock::ToolResult {
+                                tool_use_id,
+                                content: result_content,
+                                ..
+                            } => {
                                 // Tool results are sent as separate messages with role "tool"
                                 // in OpenAI's format; handled below.
                                 let _ = (tool_use_id, result_content);
@@ -273,7 +274,9 @@ impl Provider for OpenAIProvider {
         let chat_models: Vec<ModelInfo> = result
             .data
             .into_iter()
-            .filter(|m| m.id.starts_with("gpt-") || m.id.starts_with("o1") || m.id.starts_with("o3"))
+            .filter(|m| {
+                m.id.starts_with("gpt-") || m.id.starts_with("o1") || m.id.starts_with("o3")
+            })
             .map(|m| {
                 let (context_window, max_output) = match m.id.as_str() {
                     "gpt-4o" | "gpt-4o-2024-08-06" => (128_000, 16_384),
@@ -328,9 +331,7 @@ impl Provider for OpenAIProvider {
                 ToolChoice::Auto => OpenAIToolChoice::Auto,
                 ToolChoice::Any => OpenAIToolChoice::Required,
                 ToolChoice::None => OpenAIToolChoice::None,
-                ToolChoice::Tool { name } => OpenAIToolChoice::Function {
-                    name: name.clone(),
-                },
+                ToolChoice::Tool { name } => OpenAIToolChoice::Function { name: name.clone() },
             }),
             stream: false,
             user: options.user,
@@ -404,9 +405,7 @@ impl Provider for OpenAIProvider {
                 ToolChoice::Auto => OpenAIToolChoice::Auto,
                 ToolChoice::Any => OpenAIToolChoice::Required,
                 ToolChoice::None => OpenAIToolChoice::None,
-                ToolChoice::Tool { name } => OpenAIToolChoice::Function {
-                    name: name.clone(),
-                },
+                ToolChoice::Tool { name } => OpenAIToolChoice::Function { name: name.clone() },
             }),
             stream: true,
             user: options.user,
@@ -456,51 +455,47 @@ impl Provider for OpenAIProvider {
         let byte_stream = response.bytes_stream();
         let event_stream = byte_stream.eventsource();
 
-        let stream = event_stream.filter_map(move |result| {
-            async move {
-                match result {
-                    Ok(event) => {
-                        if event.data.is_empty() || event.data == "[DONE]" {
-                            return None;
-                        }
+        let stream = event_stream.filter_map(move |result| async move {
+            match result {
+                Ok(event) => {
+                    if event.data.is_empty() || event.data == "[DONE]" {
+                        return None;
+                    }
 
-                        let parsed: std::result::Result<OpenAIStreamChunk, _> =
-                            serde_json::from_str(&event.data);
+                    let parsed: std::result::Result<OpenAIStreamChunk, _> =
+                        serde_json::from_str(&event.data);
 
-                        match parsed {
-                            Ok(chunk) => {
-                                if let Some(choice) = chunk.choices.into_iter().next() {
-                                    if let Some(content) = choice.delta.content {
-                                        return Some(Ok(StreamEvent::ContentDelta {
-                                            delta: content,
-                                        }));
-                                    }
-
-                                    if let Some(finish_reason) = choice.finish_reason {
-                                        let stop_reason = match finish_reason.as_str() {
-                                            "stop" => StopReason::EndTurn,
-                                            "length" => StopReason::MaxTokens,
-                                            "tool_calls" => StopReason::ToolUse,
-                                            "content_filter" => StopReason::ContentFilter,
-                                            _ => StopReason::Unknown,
-                                        };
-
-                                        return Some(Ok(StreamEvent::End {
-                                            stop_reason,
-                                            usage: TokenUsage::default(),
-                                        }));
-                                    }
+                    match parsed {
+                        Ok(chunk) => {
+                            if let Some(choice) = chunk.choices.into_iter().next() {
+                                if let Some(content) = choice.delta.content {
+                                    return Some(Ok(StreamEvent::ContentDelta { delta: content }));
                                 }
-                                None
+
+                                if let Some(finish_reason) = choice.finish_reason {
+                                    let stop_reason = match finish_reason.as_str() {
+                                        "stop" => StopReason::EndTurn,
+                                        "length" => StopReason::MaxTokens,
+                                        "tool_calls" => StopReason::ToolUse,
+                                        "content_filter" => StopReason::ContentFilter,
+                                        _ => StopReason::Unknown,
+                                    };
+
+                                    return Some(Ok(StreamEvent::End {
+                                        stop_reason,
+                                        usage: TokenUsage::default(),
+                                    }));
+                                }
                             }
-                            Err(e) => {
-                                warn!("Failed to parse SSE event: {}", e);
-                                None
-                            }
+                            None
+                        }
+                        Err(e) => {
+                            warn!("Failed to parse SSE event: {}", e);
+                            None
                         }
                     }
-                    Err(e) => Some(Err(ProviderError::stream(e.to_string()))),
                 }
+                Err(e) => Some(Err(ProviderError::stream(e.to_string()))),
             }
         });
 
@@ -510,10 +505,7 @@ impl Provider for OpenAIProvider {
     async fn count_tokens(&self, _model: &str, messages: &[Message]) -> Result<TokenCount> {
         // OpenAI doesn't have a public token counting endpoint
         // We estimate based on characters (~4 chars per token)
-        let total_chars: usize = messages
-            .iter()
-            .map(|m| m.content.to_text().len())
-            .sum();
+        let total_chars: usize = messages.iter().map(|m| m.content.to_text().len()).sum();
 
         Ok(TokenCount {
             count: total_chars / 4,

@@ -75,10 +75,12 @@ impl DocumentParser for MarkdownParser {
     }
 
     async fn parse(&self, path: &Path) -> Result<ParsedDocument, LearningsError> {
-        let content = tokio::fs::read_to_string(path).await
+        let content = tokio::fs::read_to_string(path)
+            .await
             .map_err(|e| LearningsError::Io(e))?;
 
-        let title = path.file_stem()
+        let title = path
+            .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("Untitled")
             .to_string();
@@ -145,10 +147,12 @@ impl DocumentParser for TextParser {
     }
 
     async fn parse(&self, path: &Path) -> Result<ParsedDocument, LearningsError> {
-        let content = tokio::fs::read_to_string(path).await
+        let content = tokio::fs::read_to_string(path)
+            .await
             .map_err(|e| LearningsError::Io(e))?;
 
-        let title = path.file_stem()
+        let title = path
+            .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("Untitled")
             .to_string();
@@ -166,11 +170,11 @@ enum ParserKind {
     Markdown(MarkdownParser),
     Text(TextParser),
     #[cfg(feature = "pdf-parser")]
-    Pdf(crate::parser_pdf::PdfParser),
+    Pdf(crate::parser::parser_pdf::PdfParser),
     #[cfg(feature = "docx-parser")]
-    Docx(crate::parser_docx::DocxParser),
+    Docx(crate::parser::parser_docx::DocxParser),
     #[cfg(feature = "epub-parser")]
-    Epub(crate::parser_epub::EpubParser),
+    Epub(crate::parser::parser_epub::EpubParser),
 }
 
 /// Composite parser that delegates to the appropriate parser based on file extension.
@@ -181,19 +185,23 @@ pub struct CompositeParser {
 impl CompositeParser {
     /// Create a composite parser with all available parsers.
     pub fn new() -> Self {
-        let parsers: Vec<ParserKind> = vec![
+        let mut parsers: Vec<ParserKind> = vec![
             ParserKind::Markdown(MarkdownParser::new()),
             ParserKind::Text(TextParser::new()),
         ];
 
         #[cfg(feature = "pdf-parser")]
-        parsers.push(ParserKind::Pdf(crate::parser_pdf::PdfParser::new()));
+        parsers.push(ParserKind::Pdf(crate::parser::parser_pdf::PdfParser::new()));
 
         #[cfg(feature = "docx-parser")]
-        parsers.push(ParserKind::Docx(crate::parser_docx::DocxParser::new()));
+        parsers.push(ParserKind::Docx(
+            crate::parser::parser_docx::DocxParser::new(),
+        ));
 
         #[cfg(feature = "epub-parser")]
-        parsers.push(ParserKind::Epub(crate::parser_epub::EpubParser::new()));
+        parsers.push(ParserKind::Epub(
+            crate::parser::parser_epub::EpubParser::new(),
+        ));
 
         Self { parsers }
     }
@@ -227,9 +235,11 @@ impl CompositeParser {
         }
 
         // Fallback: try as plain text
-        let content = tokio::fs::read_to_string(path).await
+        let content = tokio::fs::read_to_string(path)
+            .await
             .map_err(|e| LearningsError::Io(e))?;
-        let title = path.file_stem()
+        let title = path
+            .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("Untitled")
             .to_string();
@@ -249,7 +259,11 @@ impl Default for CompositeParser {
 
 /// Detect document format from file extension.
 pub fn detect_format(path: &Path) -> DocumentFormat {
-    match path.extension().and_then(|e| e.to_str()).map(|s| s.to_lowercase()) {
+    match path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|s| s.to_lowercase())
+    {
         Some(ext) => match ext.as_str() {
             "pdf" => DocumentFormat::Pdf,
             "docx" | "doc" => DocumentFormat::Docx,
@@ -298,7 +312,8 @@ pub mod parser_pdf {
             .await
             .map_err(|e| LearningsError::DocumentParse(format!("PDF task error: {}", e)))??;
 
-            let title = path.file_stem()
+            let title = path
+                .file_stem()
                 .and_then(|s| s.to_str())
                 .unwrap_or("Untitled")
                 .to_string();
@@ -342,18 +357,18 @@ pub mod parser_docx {
             let path_buf = path.to_path_buf();
             let content = tokio::task::spawn_blocking(move || {
                 // Read the docx file and extract text from paragraphs
-                let buf = std::fs::read(&path_buf)
-                    .map_err(|e| LearningsError::Io(e))?;
-                let docx = docx_rs::read_docx(&buf)
-                    .map_err(|e| LearningsError::DocumentParse(format!("DOCX parsing error: {}", e)))?;
+                let buf = std::fs::read(&path_buf).map_err(|e| LearningsError::Io(e))?;
+                let docx = docx_rs::read_docx(&buf).map_err(|e| {
+                    LearningsError::DocumentParse(format!("DOCX parsing error: {}", e))
+                })?;
                 let mut text = String::new();
-                for child in &docx.children {
+                for child in &docx.document.children {
                     if let docx_rs::DocumentChild::Paragraph(para) = child {
                         for run in &para.children {
                             if let docx_rs::ParagraphChild::Run(r) = run {
                                 for run_child in &r.children {
                                     if let docx_rs::RunChild::Text(t) = run_child {
-                                        text.push_str(&t.value);
+                                        text.push_str(&t.text);
                                         text.push(' ');
                                     }
                                 }
@@ -367,7 +382,8 @@ pub mod parser_docx {
             .await
             .map_err(|e| LearningsError::DocumentParse(format!("DOCX task error: {}", e)))??;
 
-            let title = path.file_stem()
+            let title = path
+                .file_stem()
                 .and_then(|s| s.to_str())
                 .unwrap_or("Untitled")
                 .to_string();
@@ -410,22 +426,22 @@ pub mod parser_epub {
         async fn parse(&self, path: &Path) -> Result<ParsedDocument, LearningsError> {
             let path_buf = path.to_path_buf();
             let content = tokio::task::spawn_blocking(move || {
-                let mut epub = epub::EpubDoc::new(&path_buf)
-                    .map_err(|e| LearningsError::DocumentParse(format!("EPUB open error: {}", e)))?;
+                let mut epub = epub::doc::EpubDoc::new(&path_buf).map_err(|e| {
+                    LearningsError::DocumentParse(format!("EPUB open error: {}", e))
+                })?;
 
-                let title = epub.metadata.get("title")
-                    .and_then(|v| v.first())
-                    .cloned()
-                    .unwrap_or_else(|| "Untitled".to_string());
+                let title = epub.get_title().unwrap_or_else(|| "Untitled".to_string());
 
                 let mut text = String::new();
-                let num_pages = epub.get_num_pages();
-                for i in 0..num_pages {
-                    if let Ok(chapter) = epub.get_chapter(i) {
-                        // Strip HTML tags for plain text
-                        let plain = strip_html_tags(&String::from_utf8_lossy(&chapter));
-                        text.push_str(&plain);
-                        text.push('\n');
+                let num_chapters = epub.get_num_chapters();
+                for i in 0..num_chapters {
+                    if epub.set_current_chapter(i) {
+                        if let Some((chapter, _mime)) = epub.get_current_str() {
+                            // Strip HTML tags for plain text
+                            let plain = strip_html_tags(&chapter);
+                            text.push_str(&plain);
+                            text.push('\n');
+                        }
                     }
                 }
 
@@ -460,7 +476,10 @@ mod tests {
         assert_eq!(detect_format(Path::new("doc.pdf")), DocumentFormat::Pdf);
         assert_eq!(detect_format(Path::new("doc.docx")), DocumentFormat::Docx);
         assert_eq!(detect_format(Path::new("book.epub")), DocumentFormat::Epub);
-        assert_eq!(detect_format(Path::new("readme.md")), DocumentFormat::Markdown);
+        assert_eq!(
+            detect_format(Path::new("readme.md")),
+            DocumentFormat::Markdown
+        );
         assert_eq!(detect_format(Path::new("notes.txt")), DocumentFormat::Txt);
         assert_eq!(detect_format(Path::new("unknown.xyz")), DocumentFormat::Txt);
     }
@@ -469,7 +488,12 @@ mod tests {
     async fn test_markdown_parser() {
         let dir = TempDir::new().unwrap();
         let file_path = dir.path().join("test.md");
-        fs::write(&file_path, "# My Title\n\nSome content here.\n\n## Section\n\nMore content.").await.unwrap();
+        fs::write(
+            &file_path,
+            "# My Title\n\nSome content here.\n\n## Section\n\nMore content.",
+        )
+        .await
+        .unwrap();
 
         let parser = MarkdownParser::new();
         let doc = parser.parse(&file_path).await.unwrap();
@@ -482,7 +506,12 @@ mod tests {
     async fn test_markdown_parser_with_frontmatter() {
         let dir = TempDir::new().unwrap();
         let file_path = dir.path().join("frontmatter.md");
-        fs::write(&file_path, "---\ntitle: Custom Title\nauthor: Test\n---\n\n# Heading\n\nContent.").await.unwrap();
+        fs::write(
+            &file_path,
+            "---\ntitle: Custom Title\nauthor: Test\n---\n\n# Heading\n\nContent.",
+        )
+        .await
+        .unwrap();
 
         let parser = MarkdownParser::new();
         let doc = parser.parse(&file_path).await.unwrap();
@@ -494,7 +523,9 @@ mod tests {
     async fn test_text_parser() {
         let dir = TempDir::new().unwrap();
         let file_path = dir.path().join("notes.txt");
-        fs::write(&file_path, "Plain text content here.").await.unwrap();
+        fs::write(&file_path, "Plain text content here.")
+            .await
+            .unwrap();
 
         let parser = TextParser::new();
         let doc = parser.parse(&file_path).await.unwrap();
@@ -508,7 +539,9 @@ mod tests {
         let md_path = dir.path().join("doc.md");
         let txt_path = dir.path().join("doc.txt");
 
-        fs::write(&md_path, "# Title\n\nMarkdown content.").await.unwrap();
+        fs::write(&md_path, "# Title\n\nMarkdown content.")
+            .await
+            .unwrap();
         fs::write(&txt_path, "Text content.").await.unwrap();
 
         let parser = CompositeParser::new();

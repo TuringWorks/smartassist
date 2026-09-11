@@ -54,7 +54,7 @@ impl OpenRouterProvider {
 
         Ok(Self {
             client,
-            api_key: SecretString::new(api_key),
+            api_key: SecretString::new(api_key.into()),
             api_base: DEFAULT_API_BASE.to_string(),
             default_model: "anthropic/claude-3.5-sonnet".to_string(),
             site_url: None,
@@ -249,23 +249,21 @@ impl Provider for OpenRouterProvider {
 
     async fn list_models(&self) -> Result<Vec<ModelInfo>> {
         // OpenRouter routes to many providers, return common ones
-        Ok(vec![
-            ModelInfo {
-                id: "anthropic/claude-3.5-sonnet".to_string(),
-                provider: "openrouter".to_string(),
-                display_name: "Claude 3.5 Sonnet (via OpenRouter)".to_string(),
-                capabilities: ModelCapabilities {
-                    vision: true,
-                    tool_use: true,
-                    extended_thinking: false,
-                    streaming: true,
-                    json_mode: true,
-                },
-                context_window: 200000,
-                max_output_tokens: 8192,
-                pricing: None,
+        Ok(vec![ModelInfo {
+            id: "anthropic/claude-3.5-sonnet".to_string(),
+            provider: "openrouter".to_string(),
+            display_name: "Claude 3.5 Sonnet (via OpenRouter)".to_string(),
+            capabilities: ModelCapabilities {
+                vision: true,
+                tool_use: true,
+                extended_thinking: false,
+                streaming: true,
+                json_mode: true,
             },
-        ])
+            context_window: 200000,
+            max_output_tokens: 8192,
+            pricing: None,
+        }])
     }
 
     async fn chat(
@@ -295,7 +293,10 @@ impl Provider for OpenRouterProvider {
         let mut req_builder = self
             .client
             .post(format!("{}/chat/completions", self.api_base))
-            .header("Authorization", format!("Bearer {}", self.api_key.expose_secret()))
+            .header(
+                "Authorization",
+                format!("Bearer {}", self.api_key.expose_secret()),
+            )
             .header("Content-Type", "application/json");
 
         if let Some(ref site_url) = self.site_url {

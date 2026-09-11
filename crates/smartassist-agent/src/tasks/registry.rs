@@ -96,13 +96,12 @@ impl TaskRegistry {
         )
         .map_err(|e| crate::AgentError::Internal(format!("Failed to create tasks table: {}", e)))?;
 
-        conn.execute(
+        conn.execute_batch(
             r#"
             CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
             CREATE INDEX IF NOT EXISTS idx_tasks_session ON tasks(session_id);
             CREATE INDEX IF NOT EXISTS idx_tasks_created ON tasks(created_at);
             "#,
-            [],
         )
         .map_err(|e| crate::AgentError::Internal(format!("Failed to create indices: {}", e)))?;
 

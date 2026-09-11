@@ -21,7 +21,7 @@ async-trait = "0.1"
 futures = "0.3"
 
 # Error handling
-thiserror = "1.0"
+thiserror = "2.0"
 anyhow = "1.0"
 
 # Logging
@@ -33,7 +33,7 @@ serde_json = "1.0"
 serde_yaml = "0.9"
 
 # HTTP client (for model API calls)
-reqwest = { version = "0.11", features = ["json", "rustls-tls", "stream"], default-features = false }
+reqwest = { version = "0.13", features = ["json", "rustls", "webpki-roots", "stream"], default-features = false }
 
 # Streaming
 tokio-stream = "0.1"
@@ -52,32 +52,32 @@ regex = "1.10"
 glob = "0.3"
 
 # Diff for edit operations
-similar = "2.4"
+similar = "3.2"
 
 # URL parsing
 url = "2.5"
 
 # Random
-rand = "0.8"
+rand = "0.10"
 
 # Platform directories
-dirs = "5.0"
+dirs = "7.0"
 
 # Encoding
-base64 = "0.22"
+base64 = "0.23"
 hex = "0.4"
 urlencoding = "2.1"
 
 # Hashing
-sha2 = "0.10"
-sha1 = "0.10"
-md5 = "0.7"
+sha2 = "0.11"
+sha1 = "0.11"
+md5 = "0.8"
 
 # Database
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
 
 # Archive
-zip = "2.2"
+zip = "8.6"
 tar = "0.4"
 flate2 = "1.0"
 
@@ -85,12 +85,12 @@ flate2 = "1.0"
 hostname = "0.4"
 
 # Browser automation (optional)
-chromiumoxide = { version = "0.7", optional = true, default-features = false, features = ["tokio-runtime"] }
+chromiumoxide = { version = "0.9", optional = true, default-features = false }
 
 [dev-dependencies]
 tokio-test = "0.4"
 tempfile = "3.8"
-mockall = "0.12"
+mockall = "0.15"
 
 [features]
 default = []

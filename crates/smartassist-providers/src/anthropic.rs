@@ -16,10 +16,10 @@
 //! ```
 
 use crate::{
-    ChatOptions, ChatResponse, CompletionStream, ContentBlock, ImageSourceType,
-    Message, MessageContent, ModelCapabilities, ModelInfo, ModelPricing, Provider,
-    ProviderCapabilities, ProviderError, Result, Role, StopReason, StreamEvent, TokenCount,
-    TokenUsage, ToolChoice, ToolDefinition,
+    ChatOptions, ChatResponse, CompletionStream, ContentBlock, ImageSourceType, Message,
+    MessageContent, ModelCapabilities, ModelInfo, ModelPricing, Provider, ProviderCapabilities,
+    ProviderError, Result, Role, StopReason, StreamEvent, TokenCount, TokenUsage, ToolChoice,
+    ToolDefinition,
 };
 use async_trait::async_trait;
 use eventsource_stream::Eventsource;
@@ -69,7 +69,7 @@ impl AnthropicProvider {
 
         Ok(Self {
             client,
-            api_key: SecretString::new(api_key),
+            api_key: SecretString::new(api_key.into()),
             api_base: DEFAULT_API_BASE.to_string(),
             default_model: "claude-sonnet-4-20250514".to_string(),
             timeout: 300,
@@ -139,12 +139,14 @@ impl AnthropicProvider {
                             let parts: Vec<AnthropicContentPart> = blocks
                                 .iter()
                                 .filter_map(|block| match block {
-                                    ContentBlock::ToolResult { tool_use_id, content, .. } => {
-                                        Some(AnthropicContentPart::ToolResult {
-                                            tool_use_id: tool_use_id.clone(),
-                                            content: content.clone(),
-                                        })
-                                    }
+                                    ContentBlock::ToolResult {
+                                        tool_use_id,
+                                        content,
+                                        ..
+                                    } => Some(AnthropicContentPart::ToolResult {
+                                        tool_use_id: tool_use_id.clone(),
+                                        content: content.clone(),
+                                    }),
                                     _ => None,
                                 })
                                 .collect();
@@ -207,7 +209,11 @@ impl AnthropicProvider {
                                 input: input.clone(),
                             });
                         }
-                        ContentBlock::ToolResult { tool_use_id, content, .. } => {
+                        ContentBlock::ToolResult {
+                            tool_use_id,
+                            content,
+                            ..
+                        } => {
                             converted.push(AnthropicContentPart::ToolResult {
                                 tool_use_id: tool_use_id.clone(),
                                 content: content.clone(),
@@ -375,9 +381,7 @@ impl Provider for AnthropicProvider {
                 ToolChoice::Auto => AnthropicToolChoice::Auto,
                 ToolChoice::Any => AnthropicToolChoice::Any,
                 ToolChoice::None => AnthropicToolChoice::None,
-                ToolChoice::Tool { name } => AnthropicToolChoice::Tool {
-                    name: name.clone(),
-                },
+                ToolChoice::Tool { name } => AnthropicToolChoice::Tool { name: name.clone() },
             }),
             stream: false,
         };
@@ -396,12 +400,13 @@ impl Provider for AnthropicProvider {
 
         let status = response.status();
         if !status.is_success() {
-            let error_body: AnthropicError = response.json().await.unwrap_or_else(|_| AnthropicError {
-                error: AnthropicErrorDetail {
-                    error_type: "unknown".to_string(),
-                    message: "Unknown error".to_string(),
-                },
-            });
+            let error_body: AnthropicError =
+                response.json().await.unwrap_or_else(|_| AnthropicError {
+                    error: AnthropicErrorDetail {
+                        error_type: "unknown".to_string(),
+                        message: "Unknown error".to_string(),
+                    },
+                });
 
             return match status.as_u16() {
                 401 => Err(ProviderError::auth(error_body.error.message)),
@@ -441,9 +446,7 @@ impl Provider for AnthropicProvider {
                 ToolChoice::Auto => AnthropicToolChoice::Auto,
                 ToolChoice::Any => AnthropicToolChoice::Any,
                 ToolChoice::None => AnthropicToolChoice::None,
-                ToolChoice::Tool { name } => AnthropicToolChoice::Tool {
-                    name: name.clone(),
-                },
+                ToolChoice::Tool { name } => AnthropicToolChoice::Tool { name: name.clone() },
             }),
             stream: true,
         };
@@ -460,12 +463,13 @@ impl Provider for AnthropicProvider {
 
         let status = response.status();
         if !status.is_success() {
-            let error_body: AnthropicError = response.json().await.unwrap_or_else(|_| AnthropicError {
-                error: AnthropicErrorDetail {
-                    error_type: "unknown".to_string(),
-                    message: "Unknown error".to_string(),
-                },
-            });
+            let error_body: AnthropicError =
+                response.json().await.unwrap_or_else(|_| AnthropicError {
+                    error: AnthropicErrorDetail {
+                        error_type: "unknown".to_string(),
+                        message: "Unknown error".to_string(),
+                    },
+                });
 
             return match status.as_u16() {
                 401 => Err(ProviderError::auth(error_body.error.message)),
@@ -510,7 +514,9 @@ impl Provider for AnthropicProvider {
                                         None
                                     }
                                 }
-                                AnthropicStreamEvent::ContentBlockStart { content_block, .. } => {
+                                AnthropicStreamEvent::ContentBlockStart {
+                                    content_block, ..
+                                } => {
                                     if let AnthropicContentBlock::ToolUse { id, name, .. } =
                                         content_block
                                     {
@@ -645,10 +651,21 @@ enum AnthropicContent {
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum AnthropicContentPart {
-    Text { text: String },
-    Image { source: ApiImageSource },
-    ToolUse { id: String, name: String, input: serde_json::Value },
-    ToolResult { tool_use_id: String, content: String },
+    Text {
+        text: String,
+    },
+    Image {
+        source: ApiImageSource,
+    },
+    ToolUse {
+        id: String,
+        name: String,
+        input: serde_json::Value,
+    },
+    ToolResult {
+        tool_use_id: String,
+        content: String,
+    },
 }
 
 #[derive(Serialize)]
@@ -687,8 +704,14 @@ struct AnthropicResponse {
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum AnthropicContentBlock {
-    Text { text: String },
-    ToolUse { id: String, name: String, input: serde_json::Value },
+    Text {
+        text: String,
+    },
+    ToolUse {
+        id: String,
+        name: String,
+        input: serde_json::Value,
+    },
 }
 
 #[derive(Deserialize)]

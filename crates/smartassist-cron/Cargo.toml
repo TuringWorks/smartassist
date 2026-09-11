@@ -21,7 +21,7 @@ chrono = { workspace = true }
 async-trait = { workspace = true }
 
 # Cron parsing and scheduling
-cron = "0.12"
+cron = "0.17"
 
 # HTTP client for invoking gateway
 reqwest = { workspace = true }

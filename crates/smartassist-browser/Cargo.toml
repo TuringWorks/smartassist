@@ -31,12 +31,12 @@ smartassist-core = { workspace = true }
 smartassist-sandbox = { workspace = true }
 
 # Browser automation
-chromiumoxide = { version = "0.7", features = ["tokio-runtime"], optional = true }
+chromiumoxide = { version = "0.9", optional = true }
 
 # Docker backend
-bollard = { version = "0.16", optional = true }
+bollard = { version = "0.21", optional = true }
 
 [dev-dependencies]
 tokio-test = "0.4"
 tempfile = "3.8"
-mockall = "0.12"
+mockall = "0.15"

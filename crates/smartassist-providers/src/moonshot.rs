@@ -48,7 +48,7 @@ impl MoonshotProvider {
 
         Ok(Self {
             client,
-            api_key: SecretString::new(api_key),
+            api_key: SecretString::new(api_key.into()),
             api_base: DEFAULT_API_BASE.to_string(),
             default_model: "moonshot-v1-8k".to_string(),
         })
@@ -110,7 +110,11 @@ impl MoonshotProvider {
 
                 (
                     if text.is_empty() { None } else { Some(text) },
-                    if tool_calls.is_empty() { None } else { Some(tool_calls) },
+                    if tool_calls.is_empty() {
+                        None
+                    } else {
+                        Some(tool_calls)
+                    },
                 )
             }
         };
@@ -283,7 +287,10 @@ impl Provider for MoonshotProvider {
         let response = self
             .client
             .post(format!("{}/chat/completions", self.api_base))
-            .header("Authorization", format!("Bearer {}", self.api_key.expose_secret()))
+            .header(
+                "Authorization",
+                format!("Bearer {}", self.api_key.expose_secret()),
+            )
             .header("Content-Type", "application/json")
             .json(&request)
             .send()

@@ -11,7 +11,7 @@ fn parse_local_deps(manifest_dir: &Path) -> Vec<String> {
     let cargo_toml = manifest_dir.join("Cargo.toml");
     let content = std::fs::read_to_string(&cargo_toml)
         .unwrap_or_else(|e| panic!("Failed to read {:?}: {}", cargo_toml, e));
-    let manifest: toml::Value = content
+    let manifest: toml::Table = content
         .parse()
         .unwrap_or_else(|e| panic!("Failed to parse {:?}: {}", cargo_toml, e));
 
