@@ -2,7 +2,7 @@
 
 High-performance Rust implementation of the SmartAssist AI agent gateway.
 
-📖 **[Documentation](https://turingworks.github.io/smartassist/)**
+📖 **[Documentation](https://turingworks.github.io/smartassist/)** · 🤝 **[Contributor guide](./AGENTS.md)**
 
 ## Crates
 
