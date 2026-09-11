@@ -164,6 +164,33 @@ impl OpenAIProvider {
             .collect()
     }
 
+    /// Build the request headers (bearer auth + optional organization).
+    ///
+    /// Both the API key and the organization ID are user-supplied
+    /// configuration, so building the `HeaderValue`s is fallible: a value
+    /// containing characters that aren't valid in an HTTP header (e.g. a
+    /// stray newline) must surface as a config error, not panic the request.
+    fn build_headers(&self) -> Result<reqwest::header::HeaderMap> {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            "Authorization",
+            format!("Bearer {}", self.api_key.expose_secret())
+                .parse()
+                .map_err(|e| ProviderError::config(format!("Invalid API key: {}", e)))?,
+        );
+
+        if let Some(org) = &self.organization {
+            headers.insert(
+                "OpenAI-Organization",
+                org.parse().map_err(|e| {
+                    ProviderError::config(format!("Invalid organization ID: {}", e))
+                })?,
+            );
+        }
+
+        Ok(headers)
+    }
+
     /// Parse OpenAI response.
     fn parse_response(&self, response: OpenAIResponse) -> Result<ChatResponse> {
         let choice = response
@@ -231,17 +258,7 @@ impl Provider for OpenAIProvider {
     }
 
     async fn list_models(&self) -> Result<Vec<ModelInfo>> {
-        let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert(
-            "Authorization",
-            format!("Bearer {}", self.api_key.expose_secret())
-                .parse()
-                .unwrap(),
-        );
-
-        if let Some(org) = &self.organization {
-            headers.insert("OpenAI-Organization", org.parse().unwrap());
-        }
+        let headers = self.build_headers()?;
 
         let response = self
             .client
@@ -338,17 +355,7 @@ impl Provider for OpenAIProvider {
 
         debug!("Sending request to OpenAI: model={}", model);
 
-        let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert(
-            "Authorization",
-            format!("Bearer {}", self.api_key.expose_secret())
-                .parse()
-                .unwrap(),
-        );
-
-        if let Some(org) = &self.organization {
-            headers.insert("OpenAI-Organization", org.parse().unwrap());
-        }
+        let headers = self.build_headers()?;
 
         let response = self
             .client
@@ -412,17 +419,7 @@ impl Provider for OpenAIProvider {
             user: options.user,
         };
 
-        let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert(
-            "Authorization",
-            format!("Bearer {}", self.api_key.expose_secret())
-                .parse()
-                .unwrap(),
-        );
-
-        if let Some(org) = &self.organization {
-            headers.insert("OpenAI-Organization", org.parse().unwrap());
-        }
+        let headers = self.build_headers()?;
 
         let response = self
             .client
