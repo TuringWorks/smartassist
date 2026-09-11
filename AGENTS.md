@@ -170,10 +170,10 @@ existing duplicates listed rather than adding a third copy.
 
 | You need | Use | Don't |
 |---|---|---|
-| Is this path inside the workspace (path-traversal guard)? | `smartassist_core::paths::is_within_workspace` (`crates/smartassist-core/src/paths.rs:109`) | A local `canonicalize`-and-compare — `smartassist-security`'s `config_audit.rs:26,45` already drifted into its own copy; don't add a third. |
+| Is this path inside the workspace (path-traversal guard)? | `smartassist_core::paths::is_within_workspace` (`crates/smartassist-core/src/paths.rs:109`) — `smartassist-security`'s `config_audit.rs` used to reimplement this with its own `canonicalize`-and-compare; it now calls the shared helper | A local `canonicalize`-and-compare copy. |
 | Locating SmartAssist's config/data directories | `smartassist_core::paths::{base_dir, config_file, sessions_dir, agent_dir, ...}` (`crates/smartassist-core/src/paths.rs`) | Hand-rolling `dirs::home_dir().join(...)` at a new call site. |
 | Redacting a secret for logs/UI | `smartassist_core::safety::leak_detector::LeakDetector::mask_secret` (`crates/smartassist-core/src/safety/leak_detector.rs:309`), or wrap the value in `smartassist_core::secret::SecretString` so `Debug`/`Display` redact automatically | Byte-slicing a secret string yourself, or a bespoke redacted wrapper — `smartassist-secrets`' `DecryptedSecret` (`crates/smartassist-secrets/src/types.rs`) is a second one already; new code should prefer `SecretString` unless there's a reason specific to that crate. |
-| SHA-256 / a short content hash | `smartassist_core::id::sha256` / `short_hash` (`crates/smartassist-core/src/id.rs:24,31`) | Re-deriving the hex-encoded digest inline — `smartassist-agent`'s `tools/checksum.rs` and `tools/encoding.rs` already implement the same md5/sha1/sha256/sha512 dispatch twice; if you touch either, consolidate into one shared function instead of leaving a third copy. |
+| SHA-256 / a short content hash | `smartassist_core::id::sha256` / `short_hash` (`crates/smartassist-core/src/id.rs:24,31`) for an id/hash *value*; `smartassist-agent`'s `tools::checksum::compute_hash` (`crates/smartassist-agent/src/tools/checksum.rs`) for the md5/sha1/sha256/sha512-by-name dispatch used by the `file_checksum`, `file_verify`, and `hash` tools (it used to be copy-pasted three times across `checksum.rs` and `encoding.rs`; now all three call the one function) | Re-deriving the hex-encoded digest inline, or adding a fourth copy of the algorithm-name dispatch. |
 | A UUID, slug, or short id | `smartassist_core::id::{uuid, short_id, slug_id, timestamp_id}` (`crates/smartassist-core/src/id.rs`) | `uuid::Uuid::new_v4().to_string()` ad hoc. |
 | Running a sandboxed / resource-limited command | `smartassist_sandbox::executor::{CommandExecutor, execute_simple}` (`crates/smartassist-sandbox/src/executor.rs`) | `tokio::process::Command`/`std::process::Command` directly for anything touching untrusted or user-configured input — several crates already do this ad hoc (`smartassist-agent/tools/git.rs`, `tools/process.rs`, `smartassist-channels/imessage.rs`, `signal.rs`, `smartassist-mcp/client.rs`, `smartassist-providers/tts_local.rs`); prefer the sandboxed executor for new call sites, and treat migrating an existing one as a welcome, separately-committed cleanup. |
 | Checking a prompt/tool-output for injection or policy violations | `smartassist_core::safety::{Sanitizer, SafetyLayer, Validator}` (`crates/smartassist-core/src/safety/`) | A new regex/keyword check bolted onto a specific tool or channel. |
@@ -183,34 +183,37 @@ existing duplicates listed rather than adding a third copy.
 
 ### Known panic debt
 
-These are real `.unwrap()`/`.expect()` sites on fallible values found in
-non-test code as of this writing — not a backlog to clear in one pass, but
-worth fixing opportunistically when you're already touching the file, and a
-reason to think twice before adding a new one nearby:
+A first pass already fixed the four sites originally cataloged here as
+worked examples of the policy below — kept as a record of what "fixing
+opportunistically" looks like in this codebase, not as an open backlog:
 
-- `crates/smartassist-providers/src/openai.rs:243,350,424` —
-  `org.parse().unwrap()` on a user-configured organization string when
-  building request headers. A malformed value panics the request path;
-  should be `.map_err(...)?` into the provider's error type.
-- `crates/smartassist-channels/src/telegram.rs:404` —
-  `url.parse().unwrap()` on an attachment URL that can originate from
-  external input.
-- `crates/smartassist-agent/src/tasks/registry.rs` (multiple sites, e.g.
-  lines 132, 173, 232) — `self.conn.lock().unwrap()` on a
-  `Mutex<Connection>`. A panic while holding the lock poisons it, so every
-  later caller panics too, not just the one that failed first.
-- `crates/smartassist-core/src/safety/sanitizer.rs:72,77,82,87` and
-  `leak_detector.rs:202` — `Regex::new(...).expect(...)` and an Aho-Corasick
-  build `.expect(...)` run on *every* `Sanitizer::new()`/`LeakDetector::new()`
-  call, not once. Beyond the panic risk on a future pattern edit, rebuilding
-  these on every construction is wasted work if either type is constructed
-  more than once per process — hoist the compiled matcher into a
-  `std::sync::LazyLock` if that turns out to matter.
+- `crates/smartassist-providers/src/openai.rs` — `org.parse().unwrap()` (and
+  the same pattern on the `Authorization` header) was duplicated identically
+  across `list_models`/`chat`/`chat_stream`. Replaced with a single
+  `build_headers()` helper that returns `Result` and surfaces a malformed
+  API key or organization ID as `ProviderError::config` instead of panicking.
+- `crates/smartassist-channels/src/telegram.rs` — `url.parse().unwrap()` on
+  an attachment URL from external input now propagates via `?` into
+  `ChannelError::InvalidMessage`.
+- `crates/smartassist-agent/src/tasks/registry.rs` — the repeated
+  `self.conn.lock().unwrap()` (8 sites) is now a private `fn conn(&self)`
+  that recovers a poisoned lock (`unwrap_or_else(|poisoned| poisoned.into_inner())`)
+  instead of letting one panic take down every later call.
+- `crates/smartassist-core/src/safety/sanitizer.rs` and `leak_detector.rs` —
+  the Aho-Corasick automaton and regexes were rebuilt (with `.expect(...)`)
+  on every `Sanitizer::new()`/`LeakDetector::new()` call. Both types are now
+  zero-sized, and the compiled matchers live in `once_cell::sync::Lazy`
+  statics built once per process. (`once_cell::sync::Lazy`, not
+  `std::sync::LazyLock` — this crate's MSRV is 1.75, `LazyLock` needs 1.80.)
 
-Policy going forward: no new `.unwrap()`/`.expect()`/`panic!` on a value that
-can plausibly fail in a daemon, library, or CLI-command path. Tests and
-compile-time-provable invariants (with a one-line comment saying why the
-value can't be absent) are the only exception.
+None of this was an exhaustive sweep — the survey behind this document found
+several hundred `.unwrap()`/`.expect()` occurrences across the workspace
+(mostly in test code, but not entirely). Policy going forward: no new
+`.unwrap()`/`.expect()`/`panic!` on a value that can plausibly fail in a
+daemon, library, or CLI-command path. Tests and compile-time-provable
+invariants (with a one-line comment saying why the value can't be absent)
+are the only exception. Fix a pre-existing one opportunistically when you're
+already touching its file — don't go looking for them as a separate project.
 
 ### Error handling by crate type
 
@@ -241,7 +244,7 @@ your crate already uses rather than introducing a third:
 | `let mut v = Vec::new(); for … { v.push(...) }` | `.iter().map(...).collect()` / `filter_map` | clarity, no off-by-one risk |
 | `match` pyramid on `Result`/`Option` | `?`, `map_err`, `and_then` | clarity |
 | A `bool` pair encoding a state (e.g. `is_loading` + `is_error`) | an enum with exhaustive `match`/`when`/`switch` | the two can't disagree |
-| A regex/matcher rebuilt on every call/construction | hoist into `std::sync::LazyLock` (Rust) or a module-level constant | avoids repeated compilation cost, see [Known panic debt](#known-panic-debt) |
+| A regex/matcher rebuilt on every call/construction | hoist into a `once_cell::sync::Lazy` static (this workspace's MSRV is 1.75, so `std::sync::LazyLock` — stable since 1.80 — isn't available yet) | avoids repeated compilation cost, see [Known panic debt](#known-panic-debt) |
 | Blocking IO/CPU on the async runtime | `tokio::task::spawn_blocking` | keeps the gateway responsive |
 | A second copy of a helper already in the table above | use the existing one, or consolidate both into it | one behavior instead of two that can drift apart |
 | Direct `Command::new(...)` for a user/model-triggered command | `smartassist_sandbox::executor::CommandExecutor` | sandboxing/resource limits apply consistently |
