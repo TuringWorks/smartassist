@@ -4,6 +4,7 @@
 //! for efficient scanning of text content.
 
 use aho_corasick::AhoCorasick;
+use once_cell::sync::Lazy;
 use regex::Regex;
 
 use super::Severity;
@@ -49,17 +50,71 @@ pub struct LeakMatch {
 /// Uses an Aho-Corasick automaton built from literal prefixes to quickly
 /// skip text that cannot match any pattern, then runs full regex only
 /// on segments where a prefix was found.
-pub struct LeakDetector {
+///
+/// The pattern set is fixed ([`DEFAULT_PATTERNS`]), so every `LeakDetector` is
+/// functionally identical — the compiled regexes and automaton are built once
+/// in the [`DETECTOR`] static instead of being redone on every
+/// `LeakDetector::new()` call. Uses `once_cell::sync::Lazy` rather than
+/// `std::sync::LazyLock` because this crate's MSRV (1.75) predates
+/// `LazyLock`'s stabilization (1.80).
+pub struct LeakDetector;
+
+/// The compiled pattern set and prefix-matching automaton, built once.
+struct CompiledPatterns {
     /// Compiled leak patterns.
     patterns: Vec<LeakPattern>,
     /// Aho-Corasick automaton for prefix pre-filtering.
     prefix_matcher: AhoCorasick,
     /// Maps each prefix index to the indices of patterns that share it.
     prefix_to_patterns: Vec<Vec<usize>>,
-    /// The literal prefixes used in the automaton (kept for diagnostics).
-    #[allow(dead_code)]
-    prefixes: Vec<String>,
 }
+
+static DETECTOR: Lazy<CompiledPatterns> = Lazy::new(|| {
+    let mut patterns = Vec::new();
+    let mut prefix_map: Vec<(String, usize)> = Vec::new();
+
+    for (i, (name, regex_str, prefix, severity, action)) in DEFAULT_PATTERNS.iter().enumerate() {
+        let regex = Regex::new(regex_str)
+            .unwrap_or_else(|e| panic!("Invalid regex for pattern '{}': {}", name, e));
+
+        patterns.push(LeakPattern {
+            name,
+            regex,
+            severity: *severity,
+            action: *action,
+        });
+
+        if !prefix.is_empty() {
+            prefix_map.push((prefix.to_string(), i));
+        }
+    }
+
+    // Build Aho-Corasick from unique prefixes
+    let mut unique_prefixes: Vec<String> = Vec::new();
+    let mut prefix_to_patterns: Vec<Vec<usize>> = Vec::new();
+
+    for (prefix, pattern_idx) in &prefix_map {
+        if let Some(pos) = unique_prefixes.iter().position(|p| p == prefix) {
+            prefix_to_patterns[pos].push(*pattern_idx);
+        } else {
+            unique_prefixes.push(prefix.clone());
+            prefix_to_patterns.push(vec![*pattern_idx]);
+        }
+    }
+
+    // Use MatchKind::Standard with overlapping iteration so shorter
+    // prefixes don't shadow longer ones that start at the same position.
+    let prefix_matcher = AhoCorasick::builder()
+        .ascii_case_insensitive(true)
+        .build(&unique_prefixes)
+        .expect("Failed to build Aho-Corasick prefix matcher");
+
+    CompiledPatterns {
+        patterns,
+        prefix_matcher,
+        prefix_to_patterns,
+    }
+});
 
 /// Default leak detection patterns with their literal prefixes.
 const DEFAULT_PATTERNS: &[(&str, &str, &str, Severity, LeakAction)] = &[
@@ -160,76 +215,30 @@ const DEFAULT_PATTERNS: &[(&str, &str, &str, Severity, LeakAction)] = &[
 impl LeakDetector {
     /// Create a new leak detector with default patterns.
     pub fn new() -> Self {
-        let mut patterns = Vec::new();
-        let mut prefix_map: Vec<(String, usize)> = Vec::new();
-
-        for (i, (name, regex_str, prefix, severity, action)) in
-            DEFAULT_PATTERNS.iter().enumerate()
-        {
-            let regex = Regex::new(regex_str)
-                .unwrap_or_else(|e| panic!("Invalid regex for pattern '{}': {}", name, e));
-
-            patterns.push(LeakPattern {
-                name,
-                regex,
-                severity: *severity,
-                action: *action,
-            });
-
-            if !prefix.is_empty() {
-                prefix_map.push((prefix.to_string(), i));
-            }
-        }
-
-        // Build Aho-Corasick from unique prefixes
-        let mut unique_prefixes: Vec<String> = Vec::new();
-        let mut prefix_to_patterns: Vec<Vec<usize>> = Vec::new();
-
-        for (prefix, pattern_idx) in &prefix_map {
-            if let Some(pos) = unique_prefixes.iter().position(|p| p == prefix) {
-                prefix_to_patterns[pos].push(*pattern_idx);
-            } else {
-                unique_prefixes.push(prefix.clone());
-                prefix_to_patterns.push(vec![*pattern_idx]);
-            }
-        }
-
-        // Use MatchKind::Standard with overlapping iteration so shorter
-        // prefixes don't shadow longer ones that start at the same position.
-        let prefix_matcher = AhoCorasick::builder()
-            .ascii_case_insensitive(true)
-            .build(&unique_prefixes)
-            .expect("Failed to build Aho-Corasick prefix matcher");
-
-        Self {
-            patterns,
-            prefix_matcher,
-            prefix_to_patterns,
-            prefixes: unique_prefixes,
-        }
+        Self
     }
 
     /// Scan text for secret leaks. Returns all matches with details.
     pub fn scan(&self, text: &str) -> Vec<LeakMatch> {
+        let detector = &*DETECTOR;
         let mut matches = Vec::new();
-        let mut checked_patterns = vec![false; self.patterns.len()];
+        let mut checked_patterns = vec![false; detector.patterns.len()];
 
         // Phase 1: Use prefix matcher to identify candidate patterns.
         // Use overlapping iteration so shorter prefixes don't shadow longer
         // ones that start at the same position (e.g., "sk-" vs "sk-ant-api").
         let mut state = aho_corasick::automaton::OverlappingState::start();
         loop {
-            self.prefix_matcher
-                .find_overlapping(text, &mut state);
+            detector.prefix_matcher.find_overlapping(text, &mut state);
             let mat = match state.get_match() {
                 Some(m) => m,
                 None => break,
             };
             let prefix_idx = mat.pattern().as_usize();
-            for &pattern_idx in &self.prefix_to_patterns[prefix_idx] {
+            for &pattern_idx in &detector.prefix_to_patterns[prefix_idx] {
                 if !checked_patterns[pattern_idx] {
                     checked_patterns[pattern_idx] = true;
-                    let pattern = &self.patterns[pattern_idx];
+                    let pattern = &detector.patterns[pattern_idx];
                     for regex_match in pattern.regex.find_iter(text) {
                         matches.push(LeakMatch {
                             pattern_name: pattern.name.to_string(),
@@ -243,7 +252,7 @@ impl LeakDetector {
         }
 
         // Phase 2: Check patterns without prefixes (e.g., high entropy hex)
-        for (i, pattern) in self.patterns.iter().enumerate() {
+        for (i, pattern) in detector.patterns.iter().enumerate() {
             if checked_patterns[i] {
                 continue;
             }

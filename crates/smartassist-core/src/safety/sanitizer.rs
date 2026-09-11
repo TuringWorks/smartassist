@@ -1,6 +1,7 @@
 //! Aho-Corasick based prompt injection pattern detection and sanitization.
 
 use aho_corasick::AhoCorasick;
+use once_cell::sync::Lazy;
 use regex::Regex;
 
 use super::Severity;
@@ -18,14 +19,53 @@ pub struct InjectionMatch {
 ///
 /// Uses multi-pattern matching for O(n) detection of known prompt injection
 /// patterns, plus regex patterns for more complex signatures.
-pub struct Sanitizer {
-    /// Aho-Corasick automaton for fast literal matching.
-    automaton: AhoCorasick,
-    /// Pattern names corresponding to automaton pattern indices.
-    pattern_names: Vec<(&'static str, Severity)>,
-    /// Additional regex-based patterns for complex signatures.
-    regex_patterns: Vec<(Regex, &'static str, Severity)>,
-}
+///
+/// The pattern set is fixed (see [`INJECTION_PATTERNS`]), so the compiled
+/// automaton and regexes are shared `once_cell::sync::Lazy` statics rather
+/// than per-instance fields: every `Sanitizer` is functionally identical, and
+/// compiling the automaton is not free — it was previously redone on every
+/// `Sanitizer::new()` call (e.g. once per agent session on a long-lived
+/// daemon). `once_cell::sync::Lazy` is used instead of `std::sync::LazyLock`
+/// because this crate's MSRV (1.75) predates `LazyLock`'s stabilization (1.80).
+pub struct Sanitizer;
+
+/// Pattern names corresponding to [`AUTOMATON`]'s pattern indices.
+static PATTERN_NAMES: Lazy<Vec<(&'static str, Severity)>> = Lazy::new(|| {
+    INJECTION_PATTERNS
+        .iter()
+        .map(|(_, name, severity)| (*name, *severity))
+        .collect()
+});
+
+/// Aho-Corasick automaton for fast literal matching.
+static AUTOMATON: Lazy<AhoCorasick> = Lazy::new(|| {
+    let patterns: Vec<&str> = INJECTION_PATTERNS.iter().map(|(p, _, _)| *p).collect();
+    AhoCorasick::builder()
+        .ascii_case_insensitive(true)
+        .build(&patterns)
+        .expect("Failed to build Aho-Corasick automaton")
+});
+
+/// Additional regex-based patterns for complex signatures.
+static REGEX_PATTERNS: Lazy<Vec<(Regex, &'static str, Severity)>> = Lazy::new(|| {
+    vec![
+        (
+            Regex::new(r"[A-Za-z0-9+/]{50,}={0,2}").expect("invalid regex"),
+            "base64_payload",
+            Severity::Medium,
+        ),
+        (
+            Regex::new(r"(?i)\b(?:eval|exec)\s*\(").expect("invalid regex"),
+            "eval_exec_call",
+            Severity::High,
+        ),
+        (
+            Regex::new(r"\x00").expect("invalid regex"),
+            "null_byte",
+            Severity::High,
+        ),
+    ]
+});
 
 /// The 19 case-insensitive literal injection patterns.
 const INJECTION_PATTERNS: &[(&str, &str, Severity)] = &[
@@ -59,42 +99,7 @@ const INJECTION_PATTERNS: &[(&str, &str, Severity)] = &[
 impl Sanitizer {
     /// Create a new sanitizer with default injection patterns.
     pub fn new() -> Self {
-        let patterns: Vec<&str> = INJECTION_PATTERNS.iter().map(|(p, _, _)| *p).collect();
-        let pattern_names: Vec<(&str, Severity)> = INJECTION_PATTERNS
-            .iter()
-            .map(|(_, name, severity)| (*name, *severity))
-            .collect();
-
-        // Build case-insensitive Aho-Corasick automaton
-        let automaton = AhoCorasick::builder()
-            .ascii_case_insensitive(true)
-            .build(&patterns)
-            .expect("Failed to build Aho-Corasick automaton");
-
-        // Regex patterns for complex signatures
-        let regex_patterns = vec![
-            (
-                Regex::new(r"[A-Za-z0-9+/]{50,}={0,2}").expect("invalid regex"),
-                "base64_payload",
-                Severity::Medium,
-            ),
-            (
-                Regex::new(r"(?i)\b(?:eval|exec)\s*\(").expect("invalid regex"),
-                "eval_exec_call",
-                Severity::High,
-            ),
-            (
-                Regex::new(r"\x00").expect("invalid regex"),
-                "null_byte",
-                Severity::High,
-            ),
-        ];
-
-        Self {
-            automaton,
-            pattern_names,
-            regex_patterns,
-        }
+        Self
     }
 
     /// Scan text for injection patterns. Returns all matches with pattern
@@ -103,8 +108,8 @@ impl Sanitizer {
         let mut matches = Vec::new();
 
         // Aho-Corasick multi-pattern search (O(n) in text length)
-        for mat in self.automaton.find_iter(text) {
-            let (name, severity) = &self.pattern_names[mat.pattern().as_usize()];
+        for mat in AUTOMATON.find_iter(text) {
+            let (name, severity) = &PATTERN_NAMES[mat.pattern().as_usize()];
             matches.push(InjectionMatch {
                 pattern: name.to_string(),
                 severity: *severity,
@@ -112,7 +117,7 @@ impl Sanitizer {
         }
 
         // Regex patterns for complex signatures
-        for (regex, name, severity) in &self.regex_patterns {
+        for (regex, name, severity) in REGEX_PATTERNS.iter() {
             if regex.is_match(text) {
                 matches.push(InjectionMatch {
                     pattern: name.to_string(),
